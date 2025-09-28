@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "api/generate.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/v3/images/generations",
+      "destination": "/api/generate"
+    }
+  ]
+}
