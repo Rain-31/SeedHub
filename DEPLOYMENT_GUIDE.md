@@ -1,6 +1,42 @@
-# GitHub Pages 部署教程
+# 部署教程
 
-本教程将详细指导你如何将 SeedHub 项目部署到 GitHub Pages，每一步都不会遗漏。
+本教程将详细指导你如何将 SeedHub 项目部署到不同平台，每一步都不会遗漏。
+
+## 部署到Vercel（推荐，完美解决CORS问题）
+
+Vercel提供了serverless函数来代理API请求，完美解决了CORS跨域问题，无需用户安装任何浏览器扩展。
+
+### 步骤：
+
+1. **准备Vercel账号**
+   - 访问 [vercel.com](https://vercel.com) 注册账号
+   - 连接你的GitHub账号
+
+2. **部署项目**
+   - 在Vercel控制台点击"New Project"
+   - 选择你的SeedHub仓库
+   - 保持默认设置，点击"Deploy"
+
+3. **自动配置**
+   - Vercel会自动识别 `vercel.json` 配置
+   - API请求会自动重写到serverless函数
+   - 无需手动配置环境变量
+
+4. **访问应用**
+   - 部署完成后，Vercel会提供一个域名
+   - 访问该域名即可使用应用，完全无CORS问题
+
+### 优势：
+- ✅ 自动解决CORS跨域问题
+- ✅ 用户无需安装浏览器扩展
+- ✅ 支持serverless函数
+- ✅ 自动HTTPS
+- ✅ 全球CDN加速
+- ✅ 免费额度充足
+
+## 部署到GitHub Pages（需要CORS扩展）
+
+如果你仍然想使用GitHub Pages，需要用户安装CORS扩展。
 
 ## 📋 前置准备
 
