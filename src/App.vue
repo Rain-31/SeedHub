@@ -80,14 +80,34 @@
                 参考图片URL（可选）
               </label>
               <div class="space-y-2">
-                <input
+                <div
                   v-for="(url, index) in form.imageUrls"
                   :key="index"
-                  v-model="form.imageUrls[index]"
-                  type="url"
-                  :placeholder="`参考图片 ${index + 1} URL`"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
+                  class="flex gap-2"
+                >
+                  <input
+                    v-model="form.imageUrls[index]"
+                    type="url"
+                    :placeholder="`参考图片 ${index + 1} URL`"
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    @click="uploadImage(index)"
+                    :disabled="uploadingIndex === index"
+                    class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                    title="上传图片"
+                  >
+                    <svg v-if="uploadingIndex === index" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    {{ uploadingIndex === index ? '上传中' : '上传' }}
+                  </button>
+                </div>
                 <button
                   type="button"
                   @click="addImageUrl"
@@ -287,6 +307,9 @@ export default {
     const loading = ref(false)
     const error = ref('')
     const generatedImages = ref([])
+    
+    // 图片上传状态
+    const uploadingIndex = ref(-1)
 
     // 图片放大模态框状态
     const modalImage = reactive({
@@ -348,6 +371,77 @@ export default {
       if (form.imageUrls.length < 5) {
         form.imageUrls.push('')
       }
+    }
+
+    // 图片上传功能
+    const uploadImage = async (index) => {
+      // 创建文件输入元素
+      const fileInput = document.createElement('input')
+      fileInput.type = 'file'
+      fileInput.accept = 'image/*'
+      
+      fileInput.onchange = async (event) => {
+        const file = event.target.files[0]
+        if (!file) return
+        
+        // 检查文件类型
+        if (!file.type.startsWith('image/')) {
+          alert('请选择图片文件')
+          return
+        }
+        
+        // 检查文件大小 (限制为10MB)
+        if (file.size > 10 * 1024 * 1024) {
+          alert('图片文件大小不能超过10MB')
+          return
+        }
+        
+        uploadingIndex.value = index
+        
+        try {
+          // 创建FormData
+          const formData = new FormData()
+          formData.append('file', file)
+          
+          // 使用本地代理API上传
+          const response = await axios.post('/api/upload', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          })
+          
+          if (response.data && response.data.length > 0) {
+            const imageData = response.data[0]
+            const imageUrl = `https://telegraph-image-92x.pages.dev${imageData.src}`
+            
+            // 将图片URL填入对应的输入框
+            form.imageUrls[index] = imageUrl
+            
+            console.log('✅ 图片上传成功:', imageUrl)
+          } else {
+            throw new Error('上传响应格式不正确')
+          }
+          
+        } catch (error) {
+          console.error('❌ 图片上传失败:', error)
+          let errorMessage = '图片上传失败'
+          
+          if (error.response) {
+            errorMessage = `上传失败: ${error.response.status} ${error.response.statusText}`
+          } else if (error.request) {
+            errorMessage = '网络错误: 无法连接到上传服务器'
+          } else {
+            errorMessage = `上传错误: ${error.message}`
+          }
+          
+          alert(errorMessage)
+        } finally {
+          uploadingIndex.value = -1
+        }
+      }
+      
+      // 触发文件选择对话框
+      fileInput.click()
     }
 
     // 清除历史输入数据
@@ -494,7 +588,9 @@ export default {
       error,
       generatedImages,
       modalImage,
+      uploadingIndex,
       addImageUrl,
+      uploadImage,
       clearHistoryData,
       generateImages,
       onImageLoad,

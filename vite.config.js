@@ -76,6 +76,68 @@ export default defineConfig({
           next();
         });
         
+        // 添加上传代理中间件
+        server.middlewares.use('/api/upload', async (req, res, next) => {
+          // 设置CORS头
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+          // 处理预检请求
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 200
+            res.end()
+            return
+          }
+
+          if (req.method !== 'POST') {
+            res.statusCode = 405
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Method not allowed' }))
+            return
+          }
+
+          try {
+            // 收集请求体数据
+            const chunks = []
+            req.on('data', chunk => chunks.push(chunk))
+            req.on('end', async () => {
+              try {
+                const buffer = Buffer.concat(chunks)
+                
+                // 转发请求到Telegraph API
+                const fetch = (await import('node-fetch')).default
+                const response = await fetch('https://telegraph-image-92x.pages.dev/upload', {
+                  method: 'POST',
+                  body: buffer,
+                  headers: {
+                    'Content-Type': req.headers['content-type']
+                  }
+                })
+
+                if (!response.ok) {
+                  throw new Error(`Upload failed: ${response.status} ${response.statusText}`)
+                }
+
+                const data = await response.json()
+                res.setHeader('Content-Type', 'application/json')
+                res.statusCode = 200
+                res.end(JSON.stringify(data))
+              } catch (error) {
+                console.error('Upload error:', error)
+                res.setHeader('Content-Type', 'application/json')
+                res.statusCode = 500
+                res.end(JSON.stringify({ error: 'Upload failed', details: error.message }))
+              }
+            })
+          } catch (error) {
+            console.error('Upload proxy error:', error)
+            res.setHeader('Content-Type', 'application/json')
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: 'Upload failed', details: error.message }))
+          }
+        })
+        
         // 将代理中间件应用到服务器
         server.middlewares.use(proxyMiddleware);
       }
