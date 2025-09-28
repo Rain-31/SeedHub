@@ -30,6 +30,21 @@
               />
             </div>
 
+            <!-- API Endpoint -->
+            <div>
+              <label for="apiEndpoint" class="block text-sm font-medium text-gray-700 mb-2">
+                API Endpoint
+              </label>
+              <input
+                id="apiEndpoint"
+                v-model="form.apiEndpoint"
+                type="text"
+                placeholder="例如: ark.ap-southeast.bytepluses.com"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+              <p class="mt-1 text-sm text-gray-500">请输入火山引擎ARK API的域名部分</p>
+            </div>
             <!-- 提示词 -->
             <div>
               <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">
@@ -212,6 +227,7 @@ export default {
 
     const form = reactive({
       apiKey: '',
+      apiEndpoint: 'ark.cn-beijing.volces.com',
       prompt: 'Generate 3 images of a girl and a cow plushie happily riding a roller coaster in an amusement park, depicting morning, noon, and night.',
       imageUrls: ['', ''],
       size: '2K',
@@ -228,6 +244,11 @@ export default {
     const generateImages = async () => {
       if (!form.apiKey.trim()) {
         error.value = '请输入API Key'
+        return
+      }
+
+      if (!form.apiEndpoint.trim()) {
+        error.value = '请输入API Endpoint'
         return
       }
 
@@ -270,7 +291,8 @@ export default {
           {
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${form.apiKey}`
+              'Authorization': `Bearer ${form.apiKey}`,
+              'X-API-Endpoint': form.apiEndpoint
             }
           }
         )
