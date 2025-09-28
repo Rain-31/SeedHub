@@ -210,9 +210,10 @@
               <img
                 :src="image.url"
                 :alt="`生成的图片 ${index + 1}`"
-                class="w-full h-auto"
+                class="w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
                 @load="onImageLoad"
                 @error="onImageError"
+                @click="openImageModal(image.url, `生成的图片 ${index + 1}`)"
               />
               <div class="p-3 bg-gray-50">
                 <div class="flex justify-between items-center">
@@ -240,11 +241,43 @@
         </div>
       </div>
     </main>
+
+    <!-- 图片放大模态框 -->
+    <div
+      v-if="modalImage.show"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm"
+      @click="closeImageModal"
+    >
+      <div class="relative max-w-7xl max-h-full p-4">
+        <!-- 关闭按钮 -->
+        <button
+          @click="closeImageModal"
+          class="absolute top-2 right-2 z-10 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-70 transition-all"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+        
+        <!-- 放大的图片 -->
+        <img
+          :src="modalImage.url"
+          :alt="modalImage.alt"
+          class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          @click.stop
+        />
+        
+        <!-- 图片信息 -->
+        <div class="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-3 py-1 rounded-md text-sm">
+          {{ modalImage.alt }}
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import { saveFormData, loadFormData, clearFormData, hasFormData } from './utils/storage.js'
 
@@ -254,6 +287,13 @@ export default {
     const loading = ref(false)
     const error = ref('')
     const generatedImages = ref([])
+
+    // 图片放大模态框状态
+    const modalImage = reactive({
+      show: false,
+      url: '',
+      alt: ''
+    })
 
     const form = reactive({
       apiKey: '',
@@ -282,8 +322,11 @@ export default {
       { deep: true }
     )
 
-    // 页面加载时从Cookie恢复表单数据
+    // 页面加载时从Cookie恢复表单数据，并添加键盘事件监听
     onMounted(() => {
+      // 添加键盘事件监听
+      document.addEventListener('keydown', handleKeydown)
+      
       const savedData = loadFormData()
       if (savedData) {
         // 恢复所有保存的数据，包括apiKey
@@ -414,16 +457,50 @@ export default {
       console.error('图片加载失败:', event.target.src)
     }
 
+    // 图片模态框相关方法
+    const openImageModal = (url, alt) => {
+      modalImage.show = true
+      modalImage.url = url
+      modalImage.alt = alt
+      // 防止背景滚动
+      document.body.style.overflow = 'hidden'
+    }
+
+    const closeImageModal = () => {
+      modalImage.show = false
+      modalImage.url = ''
+      modalImage.alt = ''
+      // 恢复背景滚动
+      document.body.style.overflow = 'auto'
+    }
+
+    // 键盘事件处理
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape' && modalImage.show) {
+        closeImageModal()
+      }
+    }
+
+    // 组件卸载时移除键盘事件监听
+    onUnmounted(() => {
+      document.removeEventListener('keydown', handleKeydown)
+      // 确保在组件卸载时恢复背景滚动
+      document.body.style.overflow = 'auto'
+    })
+
     return {
       form,
       loading,
       error,
       generatedImages,
+      modalImage,
       addImageUrl,
       clearHistoryData,
       generateImages,
       onImageLoad,
       onImageError,
+      openImageModal,
+      closeImageModal,
       hasFormData
     }
   }
