@@ -352,13 +352,19 @@ export default {
       
       const savedData = loadFormData()
       if (savedData) {
+        // 确保imageUrls至少有两个空字符串，如果保存的数据少于2个则补充
+        const imageUrls = savedData.imageUrls || []
+        while (imageUrls.length < 2) {
+          imageUrls.push('')
+        }
+        
         // 恢复所有保存的数据，包括apiKey
         Object.assign(form, {
           apiKey: savedData.apiKey || form.apiKey,
           apiEndpoint: savedData.apiEndpoint || form.apiEndpoint,
           model: savedData.model || form.model,
           prompt: savedData.prompt || form.prompt,
-          imageUrls: savedData.imageUrls || form.imageUrls,
+          imageUrls: imageUrls,
           size: savedData.size || form.size,
           maxImages: savedData.maxImages || form.maxImages,
           watermark: savedData.watermark !== undefined ? savedData.watermark : form.watermark

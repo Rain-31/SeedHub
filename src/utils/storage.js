@@ -50,13 +50,16 @@ export function deleteCookie(name) {
  */
 export function saveFormData(formData) {
   try {
+    // 过滤掉空的图片URL，只保存有内容的URL
+    const validImageUrls = formData.imageUrls.filter(url => url && url.trim())
+    
     // 保存所有表单数据，包括apiKey
     const dataToSave = {
       apiKey: formData.apiKey,
       apiEndpoint: formData.apiEndpoint,
       model: formData.model,
       prompt: formData.prompt,
-      imageUrls: formData.imageUrls,
+      imageUrls: validImageUrls,
       size: formData.size,
       maxImages: formData.maxImages,
       watermark: formData.watermark
