@@ -12,7 +12,21 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <!-- 左侧：输入表单 -->
         <div class="bg-white rounded-lg shadow-lg p-6">
-          <h2 class="text-xl font-semibold text-gray-900 mb-6">图片生成设置</h2>
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">图片生成设置</h2>
+            <button
+              v-if="hasFormData()"
+              @click="clearHistoryData"
+              type="button"
+              class="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1"
+              title="清除保存的历史输入数据"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H9a1 1 0 00-1 1v3M4 7h16"></path>
+              </svg>
+              清除历史
+            </button>
+          </div>
           
           <form @submit.prevent="generateImages" class="space-y-6">
             <!-- API Key -->
@@ -23,7 +37,7 @@
               <input
                 id="apiKey"
                 v-model="form.apiKey"
-                type="password"
+                type="text"
                 placeholder="请输入火山引擎ARK API Key"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 required
@@ -230,8 +244,9 @@
 </template>
 
 <script>
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import axios from 'axios'
+import { saveFormData, loadFormData, clearFormData, hasFormData } from './utils/storage.js'
 
 export default {
   name: 'App',
@@ -251,9 +266,61 @@ export default {
       watermark: true
     })
 
+    // 防抖定时器
+    let saveTimeout = null
+
+    // 监听表单变化，自动保存到Cookie（包含apiKey）
+    watch(
+      () => form,
+      (newForm) => {
+        // 使用防抖，避免频繁保存
+        clearTimeout(saveTimeout)
+        saveTimeout = setTimeout(() => {
+          saveFormData(newForm)
+        }, 1000)
+      },
+      { deep: true }
+    )
+
+    // 页面加载时从Cookie恢复表单数据
+    onMounted(() => {
+      const savedData = loadFormData()
+      if (savedData) {
+        // 恢复所有保存的数据，包括apiKey
+        Object.assign(form, {
+          apiKey: savedData.apiKey || form.apiKey,
+          apiEndpoint: savedData.apiEndpoint || form.apiEndpoint,
+          model: savedData.model || form.model,
+          prompt: savedData.prompt || form.prompt,
+          imageUrls: savedData.imageUrls || form.imageUrls,
+          size: savedData.size || form.size,
+          maxImages: savedData.maxImages || form.maxImages,
+          watermark: savedData.watermark !== undefined ? savedData.watermark : form.watermark
+        })
+        console.log('🔄 已从Cookie恢复表单数据（包含API Key）')
+      }
+    })
+
     const addImageUrl = () => {
       if (form.imageUrls.length < 5) {
         form.imageUrls.push('')
+      }
+    }
+
+    // 清除历史输入数据
+    const clearHistoryData = () => {
+      if (confirm('确定要清除所有保存的历史输入数据吗？')) {
+        clearFormData()
+        // 重置表单到默认值（除了apiKey）
+        Object.assign(form, {
+          apiEndpoint: 'ark.ap-southeast.bytepluses.com',
+          model: 'doubao-seedream-4-0-250828',
+          prompt: '',
+          imageUrls: ['', ''],
+          size: '2K',
+          maxImages: 3,
+          watermark: true
+        })
       }
     }
 
@@ -325,14 +392,14 @@ export default {
       } catch (error) {
         if (error.response) {
           if (error.response.data && error.response.data.error) {
-            errorMessage.value = `API错误: ${error.response.data.error.message || error.response.data.error}`
+            error.value = `API错误: ${error.response.data.error.message || error.response.data.error}`
           } else {
-            errorMessage.value = `请求失败: ${error.response.status} ${error.response.statusText}`
+            error.value = `请求失败: ${error.response.status} ${error.response.statusText}`
           }
         } else if (error.request) {
-          errorMessage.value = '网络错误: 无法连接到服务器'
+          error.value = '网络错误: 无法连接到服务器'
         } else {
-          errorMessage.value = `请求配置错误: ${error.message}`
+          error.value = `请求配置错误: ${error.message}`
         }
       } finally {
         loading.value = false
@@ -353,9 +420,11 @@ export default {
       error,
       generatedImages,
       addImageUrl,
+      clearHistoryData,
       generateImages,
       onImageLoad,
-      onImageError
+      onImageError,
+      hasFormData
     }
   }
 }
