@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/generate.js": {
-      "runtime": "@vercel/node@latest"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/v3/images/generations",
