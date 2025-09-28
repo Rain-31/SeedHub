@@ -89,6 +89,21 @@
               <h3 class="text-lg font-medium text-gray-900 mb-4">高级设置</h3>
               
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- 模型选择 -->
+                <div>
+                  <label for="model" class="block text-sm font-medium text-gray-700 mb-2">
+                    AI模型
+                  </label>
+                  <select
+                    id="model"
+                    v-model="form.model"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="doubao-seedream-4-0-250828">Doubao SeedDream 4.0</option>
+                    <option value="seedream-4-0-250828">SeedDream 4.0</option>
+                  </select>
+                </div>
+
                 <!-- 图片尺寸 -->
                 <div>
                   <label for="size" class="block text-sm font-medium text-gray-700 mb-2">
@@ -228,7 +243,8 @@ export default {
     const form = reactive({
       apiKey: '',
       apiEndpoint: 'ark.cn-beijing.volces.com',
-      prompt: 'Generate 3 images of a girl and a cow plushie happily riding a roller coaster in an amusement park, depicting morning, noon, and night.',
+      model: 'doubao-seedream-4-0-250828',
+      prompt: '',
       imageUrls: ['', ''],
       size: '2K',
       maxImages: 3,
@@ -266,15 +282,14 @@ export default {
         const validImageUrls = form.imageUrls.filter(url => url.trim())
 
         const requestData = {
-          model: "doubao-seedream-4-0-250828",
+          model: form.model,
           prompt: form.prompt,
-          sequential_image_generation: "auto",
+          sequential_image_generation: form.maxImages > 1 ? "auto" : "disabled",
           sequential_image_generation_options: {
             max_images: form.maxImages
           },
           response_format: "url",
           size: form.size,
-          stream: false,
           watermark: form.watermark
         }
 
@@ -283,18 +298,18 @@ export default {
           requestData.image = validImageUrls
         }
 
-        // 使用环境变量配置的API地址
-        const apiUrl = import.meta.env.VITE_API_BASE_URL || '/api/v3/images/generations'
+        // 使用代理路径避免CORS问题
+        const apiUrl = '/api/v3/images/generations'
+        
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${form.apiKey}`
+        };
+        
         const response = await axios.post(
           apiUrl,
           requestData,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${form.apiKey}`,
-              'X-API-Endpoint': form.apiEndpoint
-            }
-          }
+          { headers }
         )
 
         if (response.data && response.data.data) {
@@ -306,20 +321,17 @@ export default {
           throw new Error('API响应格式不正确')
         }
 
-      } catch (err) {
-        console.error('生成图片失败:', err)
-        
-        if (err.response) {
-          const errorData = err.response.data
-          if (errorData && errorData.error) {
-            error.value = `API错误: ${errorData.error.message || '未知错误'}`
+      } catch (error) {
+        if (error.response) {
+          if (error.response.data && error.response.data.error) {
+            errorMessage.value = `API错误: ${error.response.data.error.message || error.response.data.error}`
           } else {
-            error.value = `HTTP错误: ${err.response.status} ${err.response.statusText}`
+            errorMessage.value = `请求失败: ${error.response.status} ${error.response.statusText}`
           }
-        } else if (err.request) {
-          error.value = '网络请求失败，请检查网络连接'
+        } else if (error.request) {
+          errorMessage.value = '网络错误: 无法连接到服务器'
         } else {
-          error.value = err.message || '生成图片时发生未知错误'
+          errorMessage.value = `请求配置错误: ${error.message}`
         }
       } finally {
         loading.value = false
