@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "火山引擎SeedDream图片生成工具",
   "type": "module",
+  "engines": {
+    "node": "18.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
