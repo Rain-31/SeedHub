@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/generate.js": {
-      "runtime": "@vercel/node"
+      "runtime": "@vercel/node@latest"
     }
   },
   "rewrites": [
