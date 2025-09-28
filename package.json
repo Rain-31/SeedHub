@@ -4,7 +4,7 @@
   "description": "火山引擎SeedDream图片生成工具",
   "type": "module",
   "engines": {
-    "node": "18.x"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "vite",
