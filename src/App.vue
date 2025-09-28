@@ -303,7 +303,8 @@ export default {
         
         const headers = {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${form.apiKey}`
+          'Authorization': `Bearer ${form.apiKey}`,
+          'X-Target-Host': form.apiEndpoint
         };
         
         const response = await axios.post(
