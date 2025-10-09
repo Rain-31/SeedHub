@@ -532,17 +532,17 @@ export default {
           throw new Error('API响应格式不正确')
         }
 
-      } catch (error) {
-        if (error.response) {
-          if (error.response.data && error.response.data.error) {
-            error.value = `API错误: ${error.response.data.error.message || error.response.data.error}`
+      } catch (err) {
+        if (err.response) {
+          if (err.response.data && err.response.data.error) {
+            error.value = `API错误: ${err.response.data.error.message || err.response.data.error}`
           } else {
-            error.value = `请求失败: ${error.response.status} ${error.response.statusText}`
+            error.value = `请求失败: ${err.response.status} ${err.response.statusText}`
           }
-        } else if (error.request) {
+        } else if (err.request) {
           error.value = '网络错误: 无法连接到服务器'
         } else {
-          error.value = `请求配置错误: ${error.message}`
+          error.value = `请求配置错误: ${err.message}`
         }
       } finally {
         loading.value = false
