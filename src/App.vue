@@ -137,6 +137,7 @@
                     <option value="seedream-4-0-250828">SeedReam 4.0</option>
                     <option value="seedream-4-5-251128">SeedReam 4.5</option>
                     <option value="doubao-seedream-4-5-251128">Doubao SeedReam 4.5</option>
+                    <option value="seedream-5-0-260128">SeedReam 5.0 Lite</option>
                   </select>
                 </div>
 
