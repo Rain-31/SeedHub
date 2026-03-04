@@ -151,9 +151,13 @@
                     v-model="form.size"
                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
-                    <option value="1K">1K (1024x1024)</option>
-                    <option value="2K">2K (2048x2048)</option>
-                    <option value="4K">4K (4096x4096)</option>
+                    <option
+                      v-for="sizeOption in availableSizes"
+                      :key="sizeOption.value"
+                      :value="sizeOption.value"
+                    >
+                      {{ sizeOption.label }}
+                    </option>
                   </select>
                 </div>
 
@@ -300,7 +304,7 @@
 </template>
 
 <script>
-import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
 import { saveFormData, loadFormData, clearFormData, hasFormData } from './utils/storage.js'
 
@@ -332,8 +336,38 @@ export default {
       watermark: true
     })
 
+    // 计算可用的尺寸选项
+    const availableSizes = computed(() => {
+      if (form.model === 'seedream-5-0-260128') {
+        // Seedream 5.0 Lite 只支持 2K 和 3K
+        return [
+          { value: '2K', label: '2K (2048x2048)' },
+          { value: '3K', label: '3K (3072x3072)' }
+        ]
+      } else {
+        // 其他模型支持 1K、2K、4K
+        return [
+          { value: '1K', label: '1K (1024x1024)' },
+          { value: '2K', label: '2K (2048x2048)' },
+          { value: '4K', label: '4K (4096x4096)' }
+        ]
+      }
+    })
+
     // 防抖定时器
     let saveTimeout = null
+
+    // 监听模型变化，调整尺寸选项
+    watch(
+      () => form.model,
+      (newModel) => {
+        // 如果当前尺寸不在可用选项中，自动切换到第一个可用尺寸
+        const availableValues = availableSizes.value.map(s => s.value)
+        if (!availableValues.includes(form.size)) {
+          form.size = availableValues[0]
+        }
+      }
+    )
 
     // 监听表单变化，自动保存到Cookie（包含apiKey）
     watch(
@@ -598,6 +632,7 @@ export default {
       generatedImages,
       modalImage,
       uploadingIndex,
+      availableSizes,
       addImageUrl,
       uploadImage,
       clearHistoryData,
