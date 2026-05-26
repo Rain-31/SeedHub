@@ -339,10 +339,11 @@ export default {
     // 计算可用的尺寸选项
     const availableSizes = computed(() => {
       if (form.model === 'seedream-5-0-260128') {
-        // Seedream 5.0 Lite 只支持 2K 和 3K
+        // Seedream 5.0 Lite 支持 2K、3K 和 4K
         return [
           { value: '2K', label: '2K (2048x2048)' },
-          { value: '3K', label: '3K (3072x3072)' }
+          { value: '3K', label: '3K (3072x3072)' },
+          { value: '4K', label: '4K (4096x4096)' }
         ]
       } else {
         // 其他模型支持 1K、2K、4K
