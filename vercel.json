@@ -3,6 +3,14 @@
     {
       "source": "/api/v3/images/generations",
       "destination": "/api/generate"
+    },
+    {
+      "source": "/api/v3/contents/generations/tasks",
+      "destination": "/api/video-create"
+    },
+    {
+      "source": "/api/v3/contents/generations/tasks/:id",
+      "destination": "/api/video-task?id=:id"
     }
   ]
 }

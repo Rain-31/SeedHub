@@ -4,7 +4,7 @@
     <header class="bg-white shadow-sm">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <h1 class="text-3xl font-bold text-gray-900">SeedHub</h1>
-        <p class="text-gray-600 mt-1">基于火山引擎SeedDream的AI图片生成工具</p>
+        <p class="text-gray-600 mt-1">基于火山引擎 SeedDream / Seedance 的 AI 图片与视频生成工具</p>
       </div>
     </header>
 
@@ -13,7 +13,7 @@
         <!-- 左侧：输入表单 -->
         <div class="bg-white rounded-lg shadow-lg p-6">
           <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-semibold text-gray-900">图片生成设置</h2>
+            <h2 class="text-xl font-semibold text-gray-900">{{ settingsTitle }}</h2>
             <button
               v-if="hasSavedData"
               @click="clearHistoryData"
@@ -68,17 +68,17 @@
                 id="prompt"
                 v-model="form.prompt"
                 rows="4"
-                placeholder="描述你想要生成的图片..."
+                :placeholder="promptPlaceholder"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                required
               ></textarea>
             </div>
 
             <!-- 参考图片URL -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-2">
-                参考图片URL（可选）
+                {{ mediaFieldLabel }}
               </label>
+              <p class="mb-2 text-sm text-gray-500">{{ mediaFieldHint }}</p>
               <div class="space-y-2">
                 <div
                   v-for="(url, index) in form.imageUrls"
@@ -88,7 +88,7 @@
                   <input
                     v-model="form.imageUrls[index]"
                     type="url"
-                    :placeholder="`参考图片 ${index + 1} URL`"
+                    :placeholder="isVideoModel ? `图片 ${index + 1} URL` : `参考图片 ${index + 1} URL`"
                     class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   />
                   <button
@@ -109,11 +109,12 @@
                   </button>
                 </div>
                 <button
+                  v-if="form.imageUrls.length < maxImageInputs"
                   type="button"
                   @click="addImageUrl"
                   class="text-primary-600 hover:text-primary-700 text-sm font-medium"
                 >
-                  + 添加更多参考图片
+                  {{ addImageButtonText }}
                 </button>
               </div>
             </div>
@@ -138,13 +139,16 @@
                     <option value="seedream-4-5-251128">SeedReam 4.5</option>
                     <option value="doubao-seedream-4-5-251128">Doubao SeedReam 4.5</option>
                     <option value="seedream-5-0-260128">SeedReam 5.0 Lite</option>
+                    <option value="dreamina-seedance-2-0-260128">Seedance 2.0</option>
+                    <option value="seedance-1-5-pro-251215">Seedance 1.5 Pro</option>
+                    <option value="seedance-1-0-pro-250528">Seedance 1.0 Pro</option>
                   </select>
                 </div>
 
-                <!-- 图片尺寸 -->
+                <!-- 尺寸 / 分辨率 -->
                 <div>
                   <label for="size" class="block text-sm font-medium text-gray-700 mb-2">
-                    图片尺寸
+                    {{ sizeFieldLabel }}
                   </label>
                   <select
                     id="size"
@@ -162,7 +166,7 @@
                 </div>
 
                 <!-- 最大图片数量 -->
-                <div>
+                <div v-if="!isVideoModel">
                   <label for="maxImages" class="block text-sm font-medium text-gray-700 mb-2">
                     最大图片数量
                   </label>
@@ -174,6 +178,44 @@
                     max="10"
                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
+                </div>
+
+                <div v-if="isVideoModel">
+                  <label for="ratio" class="block text-sm font-medium text-gray-700 mb-2">
+                    视频比例
+                  </label>
+                  <select
+                    id="ratio"
+                    v-model="form.ratio"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option
+                      v-for="ratioOption in videoRatioOptions"
+                      :key="ratioOption"
+                      :value="ratioOption"
+                    >
+                      {{ ratioOption }}
+                    </option>
+                  </select>
+                </div>
+
+                <div v-if="isVideoModel">
+                  <label for="duration" class="block text-sm font-medium text-gray-700 mb-2">
+                    视频时长
+                  </label>
+                  <select
+                    id="duration"
+                    v-model.number="form.duration"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option
+                      v-for="durationOption in videoDurationOptions"
+                      :key="durationOption"
+                      :value="durationOption"
+                    >
+                      {{ formatDurationOption(durationOption) }}
+                    </option>
+                  </select>
                 </div>
               </div>
 
@@ -188,6 +230,21 @@
                   <span class="ml-2 text-sm text-gray-700">添加水印</span>
                 </label>
               </div>
+
+              <div v-if="isVideoModel && supportsVideoAudio" class="mt-4">
+                <label class="flex items-center">
+                  <input
+                    v-model="form.generateAudio"
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span class="ml-2 text-sm text-gray-700">生成同步音频</span>
+                </label>
+              </div>
+
+              <p v-else-if="isVideoModel" class="mt-4 text-sm text-gray-500">
+                当前模型不支持生成同步音频。
+              </p>
             </div>
 
             <!-- 提交按钮 -->
@@ -201,9 +258,9 @@
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                生成中...
+                {{ loadingText }}
               </span>
-              <span v-else>生成图片</span>
+              <span v-else>{{ submitButtonText }}</span>
             </button>
           </form>
 
@@ -285,13 +342,96 @@
             </div>
           </div>
 
+          <!-- 生成的视频 -->
+          <div v-else-if="generatedVideo" class="space-y-4">
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+              <video
+                :src="generatedVideo.url"
+                controls
+                playsinline
+                class="w-full bg-black"
+              ></video>
+
+              <div class="p-4 bg-gray-50 space-y-4">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">视频生成完成</p>
+                    <p class="text-xs text-gray-500">任务 ID: {{ videoTask.id }}</p>
+                  </div>
+                  <a
+                    :href="generatedVideo.url"
+                    target="_blank"
+                    class="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                  >
+                    打开视频
+                  </a>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                    <p class="text-gray-400">状态</p>
+                    <p class="mt-1 text-gray-700">{{ videoStatusText }}</p>
+                  </div>
+                  <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                    <p class="text-gray-400">分辨率</p>
+                    <p class="mt-1 text-gray-700">{{ generatedVideo.resolution || '-' }}</p>
+                  </div>
+                  <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                    <p class="text-gray-400">比例</p>
+                    <p class="mt-1 text-gray-700">{{ generatedVideo.ratio || '-' }}</p>
+                  </div>
+                  <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                    <p class="text-gray-400">时长</p>
+                    <p class="mt-1 text-gray-700">{{ generatedVideo.duration ?? '-' }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 视频任务状态 -->
+          <div v-else-if="videoTask.id" class="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-gray-900">视频任务进行中</p>
+                <p class="text-xs text-gray-500">任务 ID: {{ videoTask.id }}</p>
+              </div>
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                {{ videoStatusText }}
+              </span>
+            </div>
+
+            <p class="text-sm text-gray-600">
+              已提交到 {{ videoModelLabel }}，页面会每 5 秒自动刷新一次任务状态。
+            </p>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                <p class="text-gray-400">分辨率</p>
+                <p class="mt-1 text-gray-700">{{ videoTask.resolution || '-' }}</p>
+              </div>
+              <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                <p class="text-gray-400">比例</p>
+                <p class="mt-1 text-gray-700">{{ videoTask.ratio || '-' }}</p>
+              </div>
+              <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                <p class="text-gray-400">时长</p>
+                <p class="mt-1 text-gray-700">{{ videoTask.duration ?? '-' }}</p>
+              </div>
+              <div class="rounded-md bg-white border border-gray-200 px-3 py-2">
+                <p class="text-gray-400">音频</p>
+                <p class="mt-1 text-gray-700">{{ videoAudioStatusText }}</p>
+              </div>
+            </div>
+          </div>
+
           <!-- 空状态 -->
           <div v-else-if="!loading" class="text-center py-12">
             <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
             <h3 class="mt-2 text-sm font-medium text-gray-900">暂无生成结果</h3>
-            <p class="mt-1 text-sm text-gray-500">填写左侧表单开始生成图片</p>
+            <p class="mt-1 text-sm text-gray-500">{{ emptyStateText }}</p>
           </div>
         </div>
       </div>
@@ -345,12 +485,91 @@ import {
   MAX_TASK_HISTORY_ITEMS
 } from './utils/storage.js'
 
+const IMAGE_DEFAULT_ENDPOINT = 'ark.cn-beijing.volces.com'
+const VIDEO_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
+const VIDEO_POLL_INTERVAL = 5000
+const VIDEO_MAX_POLL_ATTEMPTS = 60
+
+const ALL_VIDEO_RATIOS = ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']
+const STANDARD_VIDEO_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9']
+
+function createDurationOptions(start, end, includeAuto = false) {
+  const options = []
+
+  if (includeAuto) {
+    options.push(-1)
+  }
+
+  for (let value = start; value <= end; value += 1) {
+    options.push(value)
+  }
+
+  return options
+}
+
+const VIDEO_MODELS = [
+  {
+    id: 'dreamina-seedance-2-0-260128',
+    label: 'Seedance 2.0',
+    resolutions: ['720p', '480p', '1080p'],
+    defaultResolution: '720p',
+    durationOptions: createDurationOptions(4, 15, true),
+    defaultDuration: 5,
+    ratioOptions: ALL_VIDEO_RATIOS,
+    defaultRatio: '16:9',
+    supportsGenerateAudio: true
+  },
+  {
+    id: 'seedance-1-5-pro-251215',
+    label: 'Seedance 1.5 Pro',
+    resolutions: ['720p', '480p', '1080p'],
+    defaultResolution: '720p',
+    durationOptions: createDurationOptions(4, 12, true),
+    defaultDuration: 5,
+    ratioOptions: ALL_VIDEO_RATIOS,
+    defaultRatio: '16:9',
+    supportsGenerateAudio: true
+  },
+  {
+    id: 'seedance-1-0-pro-250528',
+    label: 'Seedance 1.0 Pro',
+    resolutions: ['1080p', '720p', '480p'],
+    defaultResolution: '1080p',
+    durationOptions: createDurationOptions(2, 12),
+    defaultDuration: 5,
+    ratioOptions: STANDARD_VIDEO_RATIOS,
+    defaultRatio: '16:9',
+    supportsGenerateAudio: false
+  }
+]
+
+const VIDEO_MODEL_MAP = Object.fromEntries(VIDEO_MODELS.map(model => [model.id, model]))
+
+function getVideoModelConfig(modelId) {
+  return VIDEO_MODEL_MAP[modelId] || null
+}
+
+function isVideoModelId(modelId) {
+  return Boolean(getVideoModelConfig(modelId))
+}
+
+const VIDEO_STATUS_LABELS = {
+  idle: '未开始',
+  queued: '排队中',
+  running: '生成中',
+  succeeded: '已完成',
+  failed: '失败',
+  expired: '已过期',
+  cancelled: '已取消'
+}
+
 export default {
   name: 'App',
   setup() {
     const loading = ref(false)
     const error = ref('')
     const generatedImages = ref([])
+    const generatedVideo = ref(null)
     const taskHistory = ref([])
     const hasSavedFormData = ref(hasFormData())
     
@@ -366,17 +585,79 @@ export default {
 
     const form = reactive({
       apiKey: '',
-      apiEndpoint: 'ark.cn-beijing.volces.com',
+      apiEndpoint: IMAGE_DEFAULT_ENDPOINT,
       model: 'doubao-seedream-4-0-250828',
       prompt: '',
       imageUrls: ['', ''],
       size: '2K',
       maxImages: 3,
-      watermark: true
+      watermark: true,
+      ratio: '16:9',
+      duration: 5,
+      generateAudio: true
+    })
+
+    const videoTask = reactive({
+      id: '',
+      status: 'idle',
+      resolution: '',
+      ratio: '',
+      duration: null,
+      videoUrl: '',
+      lastFrameUrl: '',
+      framespersecond: null
+    })
+
+    const selectedVideoModel = computed(() => getVideoModelConfig(form.model))
+    const isVideoModel = computed(() => Boolean(selectedVideoModel.value))
+    const supportsVideoAudio = computed(() => Boolean(selectedVideoModel.value && selectedVideoModel.value.supportsGenerateAudio))
+    const videoModelLabel = computed(() => selectedVideoModel.value ? selectedVideoModel.value.label : '视频模型')
+    const videoRatioOptions = computed(() => selectedVideoModel.value ? selectedVideoModel.value.ratioOptions : [])
+    const videoDurationOptions = computed(() => selectedVideoModel.value ? selectedVideoModel.value.durationOptions : [])
+    const settingsTitle = computed(() => isVideoModel.value ? '视频生成设置' : '图片生成设置')
+    const promptPlaceholder = computed(() => {
+      return isVideoModel.value
+        ? '描述你想要生成的视频场景，或仅上传图片作为首帧...'
+        : '描述你想要生成的图片...'
+    })
+    const mediaFieldLabel = computed(() => {
+      return isVideoModel.value ? '首帧 / 尾帧图片URL（可选）' : '参考图片URL（可选）'
+    })
+    const mediaFieldHint = computed(() => {
+      return isVideoModel.value
+        ? '可只填 1 张作为首帧，或填 2 张作为首帧和尾帧；也支持仅用提示词生成视频。'
+        : '可直接输入图片 URL，或点击上传按钮上传本地图片。'
+    })
+    const addImageButtonText = computed(() => {
+      return isVideoModel.value ? '+ 添加尾帧图片' : '+ 添加更多参考图片'
+    })
+    const sizeFieldLabel = computed(() => isVideoModel.value ? '视频分辨率' : '图片尺寸')
+    const submitButtonText = computed(() => isVideoModel.value ? '生成视频' : '生成图片')
+    const loadingText = computed(() => {
+      return isVideoModel.value ? '生成中，正在轮询任务状态...' : '生成中...'
+    })
+    const emptyStateText = computed(() => isVideoModel.value ? '填写左侧表单开始生成视频' : '填写左侧表单开始生成图片')
+    const maxImageInputs = computed(() => isVideoModel.value ? 2 : 5)
+    const videoStatusText = computed(() => {
+      return VIDEO_STATUS_LABELS[videoTask.status] || videoTask.status || VIDEO_STATUS_LABELS.idle
+    })
+    const videoAudioStatusText = computed(() => {
+      if (!supportsVideoAudio.value) {
+        return '不支持'
+      }
+
+      return form.generateAudio ? '开启' : '关闭'
     })
 
     // 计算可用的尺寸选项
     const availableSizes = computed(() => {
+      if (isVideoModel.value) {
+        return selectedVideoModel.value.resolutions.map(value => ({
+          value,
+          label: value
+        }))
+      }
+
       if (form.model === 'seedream-5-0-260128') {
         // Seedream 5.0 Lite 支持 2K、3K 和 4K
         return [
@@ -400,16 +681,204 @@ export default {
 
     // 防抖定时器
     let saveTimeout = null
+    let pollTimer = null
+
+    const resetVideoTask = () => {
+      Object.assign(videoTask, {
+        id: '',
+        status: 'idle',
+        resolution: '',
+        ratio: '',
+        duration: null,
+        videoUrl: '',
+        lastFrameUrl: '',
+        framespersecond: null
+      })
+    }
+
+    const resetGenerationState = () => {
+      error.value = ''
+      generatedImages.value = []
+      generatedVideo.value = null
+      resetVideoTask()
+    }
+
+    const ensureMinimumImageInputs = () => {
+      if (!Array.isArray(form.imageUrls)) {
+        form.imageUrls = ['', '']
+        return
+      }
+
+      while (form.imageUrls.length < 2) {
+        form.imageUrls.push('')
+      }
+    }
+
+    const applyModelDefaults = (model) => {
+      const videoModelConfig = getVideoModelConfig(model)
+
+      if (videoModelConfig) {
+        form.imageUrls = Array.isArray(form.imageUrls) ? form.imageUrls.slice(0, 2) : []
+        ensureMinimumImageInputs()
+
+        if (!videoModelConfig.resolutions.includes(form.size)) {
+          form.size = videoModelConfig.defaultResolution
+        }
+
+        if (!videoModelConfig.ratioOptions.includes(form.ratio)) {
+          form.ratio = videoModelConfig.defaultRatio
+        }
+
+        if (!videoModelConfig.durationOptions.includes(form.duration)) {
+          form.duration = videoModelConfig.defaultDuration
+        }
+
+        if (!videoModelConfig.supportsGenerateAudio) {
+          form.generateAudio = false
+        }
+
+        if (!form.apiEndpoint.trim() || form.apiEndpoint === IMAGE_DEFAULT_ENDPOINT) {
+          form.apiEndpoint = VIDEO_DEFAULT_ENDPOINT
+        }
+
+        return
+      }
+
+      ensureMinimumImageInputs()
+
+      if (!availableSizes.value.map(item => item.value).includes(form.size)) {
+        form.size = '2K'
+      }
+    }
+
+    const getApiErrorMessage = (err) => {
+      if (err.response) {
+        const apiError = err.response.data && err.response.data.error
+
+        if (typeof apiError === 'string') {
+          return `API错误: ${apiError}`
+        }
+
+        if (apiError && apiError.message) {
+          return `API错误: ${apiError.message}`
+        }
+
+        return `请求失败: ${err.response.status} ${err.response.statusText}`
+      }
+
+      if (err.request) {
+        return '网络错误: 无法连接到服务器'
+      }
+
+      return err.message || '请求失败'
+    }
+
+    const applyVideoTaskData = (taskData) => {
+      videoTask.id = taskData.id || videoTask.id
+      videoTask.status = taskData.status || videoTask.status
+      videoTask.resolution = taskData.resolution || videoTask.resolution
+      videoTask.ratio = taskData.ratio || videoTask.ratio
+      videoTask.duration = taskData.duration ?? videoTask.duration
+      videoTask.videoUrl = taskData.content && taskData.content.video_url ? taskData.content.video_url : videoTask.videoUrl
+      videoTask.lastFrameUrl = taskData.content && (taskData.content.last_frame_image_url || taskData.content.last_frame_url)
+        ? (taskData.content.last_frame_image_url || taskData.content.last_frame_url)
+        : videoTask.lastFrameUrl
+      videoTask.framespersecond = taskData.framespersecond ?? videoTask.framespersecond
+    }
+
+    const waitForDelay = (duration) => {
+      return new Promise(resolve => {
+        pollTimer = window.setTimeout(resolve, duration)
+      })
+    }
+
+    const pollVideoTask = async (taskId, headers, attempt = 0) => {
+      const response = await axios.get(`/api/v3/contents/generations/tasks/${taskId}`, {
+        headers
+      })
+
+      const taskData = response.data
+      applyVideoTaskData(taskData)
+
+      if (taskData.status === 'succeeded') {
+        return taskData
+      }
+
+      if (['failed', 'expired', 'cancelled'].includes(taskData.status)) {
+        throw new Error(taskData.error && taskData.error.message ? taskData.error.message : `视频任务${videoStatusText.value}`)
+      }
+
+      if (attempt >= VIDEO_MAX_POLL_ATTEMPTS) {
+        throw new Error('视频任务仍在处理中，请稍后刷新页面后重试')
+      }
+
+      await waitForDelay(VIDEO_POLL_INTERVAL)
+      return pollVideoTask(taskId, headers, attempt + 1)
+    }
+
+    const buildImageRequestData = (prompt, validImageUrls) => {
+      const requestData = {
+        model: form.model,
+        prompt,
+        sequential_image_generation: form.maxImages > 1 ? 'auto' : 'disabled',
+        sequential_image_generation_options: {
+          max_images: form.maxImages
+        },
+        response_format: 'url',
+        size: form.size,
+        watermark: form.watermark
+      }
+
+      if (validImageUrls.length > 0) {
+        requestData.image = validImageUrls
+      }
+
+      return requestData
+    }
+
+    const buildVideoRequestData = (prompt, validImageUrls) => {
+      const content = []
+      const requestData = {
+        model: form.model,
+        content,
+        resolution: form.size,
+        ratio: form.ratio,
+        duration: form.duration,
+        watermark: form.watermark
+      }
+
+      if (prompt) {
+        content.push({
+          type: 'text',
+          text: prompt
+        })
+      }
+
+      validImageUrls.slice(0, maxImageInputs.value).forEach((url, index, items) => {
+        content.push({
+          type: 'image_url',
+          image_url: { url },
+          role: items.length > 1 ? (index === 0 ? 'first_frame' : 'last_frame') : 'first_frame'
+        })
+      })
+
+      if (supportsVideoAudio.value) {
+        requestData.generate_audio = form.generateAudio
+      }
+
+      return requestData
+    }
+
+    const formatDurationOption = (value) => {
+      return value === -1 ? '自动' : `${value} 秒`
+    }
 
     // 监听模型变化，调整尺寸选项
     watch(
       () => form.model,
       (newModel) => {
-        // 如果当前尺寸不在可用选项中，自动切换到第一个可用尺寸
-        const availableValues = availableSizes.value.map(s => s.value)
-        if (!availableValues.includes(form.size)) {
-          form.size = availableValues[0]
-        }
+        applyModelDefaults(newModel)
+        resetGenerationState()
       }
     )
 
@@ -435,8 +904,11 @@ export default {
       
       const savedData = loadFormData()
       if (savedData) {
-        // 确保imageUrls至少有两个空字符串，如果保存的数据少于2个则补充
-        const imageUrls = savedData.imageUrls || []
+        const savedModel = savedData.model || form.model
+        const imageUrls = Array.isArray(savedData.imageUrls)
+          ? savedData.imageUrls.slice(0, isVideoModelId(savedModel) ? 2 : 5)
+          : []
+
         while (imageUrls.length < 2) {
           imageUrls.push('')
         }
@@ -450,10 +922,16 @@ export default {
           imageUrls: imageUrls,
           size: savedData.size || form.size,
           maxImages: savedData.maxImages || form.maxImages,
-          watermark: savedData.watermark !== undefined ? savedData.watermark : form.watermark
+          watermark: savedData.watermark !== undefined ? savedData.watermark : form.watermark,
+          ratio: savedData.ratio || form.ratio,
+          duration: savedData.duration ?? form.duration,
+          generateAudio: savedData.generateAudio !== undefined ? savedData.generateAudio : form.generateAudio
         })
+        applyModelDefaults(form.model)
         hasSavedFormData.value = true
         console.log('🔄 已从 localStorage 恢复表单数据（包含 API Key）')
+      } else {
+        applyModelDefaults(form.model)
       }
     })
 
@@ -462,7 +940,7 @@ export default {
     }
 
     const addImageUrl = () => {
-      if (form.imageUrls.length < 5) {
+      if (form.imageUrls.length < maxImageInputs.value) {
         form.imageUrls.push('')
       }
     }
@@ -548,14 +1026,18 @@ export default {
 
         // 重置表单到默认值（除了apiKey）
         Object.assign(form, {
-          apiEndpoint: 'ark.ap-southeast.bytepluses.com',
+          apiEndpoint: IMAGE_DEFAULT_ENDPOINT,
           model: 'doubao-seedream-4-0-250828',
           prompt: '',
           imageUrls: ['', ''],
           size: '2K',
           maxImages: 3,
-          watermark: true
+          watermark: true,
+          ratio: '16:9',
+          duration: 5,
+          generateAudio: true
         })
+        resetGenerationState()
       }
     }
 
@@ -570,75 +1052,86 @@ export default {
         return
       }
 
-      if (!form.prompt.trim()) {
+      const normalizedPrompt = form.prompt.trim()
+      const validImageUrls = form.imageUrls
+        .map(url => url.trim())
+        .filter(Boolean)
+        .slice(0, maxImageInputs.value)
+
+      if (isVideoModel.value) {
+        if (!normalizedPrompt && validImageUrls.length === 0) {
+          error.value = '请输入提示词或至少提供一张图片'
+          return
+        }
+      } else if (!normalizedPrompt) {
         error.value = '请输入提示词'
         return
       }
 
-      const normalizedPrompt = form.prompt.trim()
       form.prompt = normalizedPrompt
       taskHistory.value = addTaskPrompt(normalizedPrompt)
 
       loading.value = true
-      error.value = ''
-      generatedImages.value = []
+      resetGenerationState()
 
       try {
-        // 过滤掉空的图片URL
-        const validImageUrls = form.imageUrls.filter(url => url.trim())
-
-        const requestData = {
-          model: form.model,
-          prompt: normalizedPrompt,
-          sequential_image_generation: form.maxImages > 1 ? "auto" : "disabled",
-          sequential_image_generation_options: {
-            max_images: form.maxImages
-          },
-          response_format: "url",
-          size: form.size,
-          watermark: form.watermark
-        }
-
-        // 只有在有有效图片URL时才添加image字段
-        if (validImageUrls.length > 0) {
-          requestData.image = validImageUrls
-        }
-
-        // 使用代理路径避免CORS问题
-        const apiUrl = '/api/v3/images/generations'
-        
         const headers = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${form.apiKey}`,
           'X-Target-Host': form.apiEndpoint
-        };
-        
+        }
+
+        if (isVideoModel.value) {
+          const createResponse = await axios.post(
+            '/api/v3/contents/generations/tasks',
+            buildVideoRequestData(normalizedPrompt, validImageUrls),
+            { headers }
+          )
+
+          const taskId = createResponse.data && createResponse.data.id
+          if (!taskId) {
+            throw new Error('视频任务创建响应格式不正确')
+          }
+
+          videoTask.id = taskId
+          videoTask.status = 'queued'
+
+          const taskData = await pollVideoTask(taskId, headers)
+          if (!taskData.content || !taskData.content.video_url) {
+            throw new Error('视频结果中缺少 video_url')
+          }
+
+          generatedVideo.value = {
+            url: taskData.content.video_url,
+            resolution: taskData.resolution || form.size,
+            ratio: taskData.ratio || form.ratio,
+            duration: taskData.duration ?? form.duration,
+            framespersecond: taskData.framespersecond ?? null
+          }
+
+          return
+        }
+
         const response = await axios.post(
-          apiUrl,
-          requestData,
+          '/api/v3/images/generations',
+          buildImageRequestData(normalizedPrompt, validImageUrls),
           { headers }
         )
 
-        if (response.data && response.data.data) {
-          generatedImages.value = response.data.data.map(item => ({
-            url: item.url,
-            revised_prompt: item.revised_prompt
-          }))
-        } else {
+        if (!response.data || !response.data.data) {
           throw new Error('API响应格式不正确')
         }
 
+        generatedImages.value = response.data.data.map(item => ({
+          url: item.url,
+          revised_prompt: item.revised_prompt
+        }))
+
       } catch (err) {
-        if (err.response) {
-          if (err.response.data && err.response.data.error) {
-            error.value = `API错误: ${err.response.data.error.message || err.response.data.error}`
-          } else {
-            error.value = `请求失败: ${err.response.status} ${err.response.statusText}`
-          }
-        } else if (err.request) {
-          error.value = '网络错误: 无法连接到服务器'
+        if (err.response || err.request) {
+          error.value = getApiErrorMessage(err)
         } else {
-          error.value = `请求配置错误: ${err.message}`
+          error.value = `生成失败: ${err.message}`
         }
       } finally {
         loading.value = false
@@ -681,6 +1174,7 @@ export default {
     onUnmounted(() => {
       document.removeEventListener('keydown', handleKeydown)
       clearTimeout(saveTimeout)
+      clearTimeout(pollTimer)
       // 确保在组件卸载时恢复背景滚动
       document.body.style.overflow = 'auto'
     })
@@ -690,6 +1184,26 @@ export default {
       loading,
       error,
       generatedImages,
+      generatedVideo,
+      isVideoModel,
+      settingsTitle,
+      promptPlaceholder,
+      mediaFieldLabel,
+      mediaFieldHint,
+      addImageButtonText,
+      sizeFieldLabel,
+      submitButtonText,
+      loadingText,
+      emptyStateText,
+      maxImageInputs,
+      videoTask,
+      videoStatusText,
+      videoModelLabel,
+      videoRatioOptions,
+      videoDurationOptions,
+      videoAudioStatusText,
+      supportsVideoAudio,
+      formatDurationOption,
       modalImage,
       uploadingIndex,
       availableSizes,

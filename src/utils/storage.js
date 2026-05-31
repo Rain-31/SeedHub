@@ -60,7 +60,9 @@ function normalizePrompt(prompt) {
  */
 export function saveFormData(formData) {
   try {
-    const validImageUrls = formData.imageUrls.filter(url => url && url.trim())
+    const validImageUrls = Array.isArray(formData.imageUrls)
+      ? formData.imageUrls.filter(url => url && url.trim())
+      : []
 
     const dataToSave = {
       apiKey: formData.apiKey,
@@ -70,7 +72,10 @@ export function saveFormData(formData) {
       imageUrls: validImageUrls,
       size: formData.size,
       maxImages: formData.maxImages,
-      watermark: formData.watermark
+      watermark: formData.watermark,
+      ratio: formData.ratio,
+      duration: formData.duration,
+      generateAudio: formData.generateAudio
     }
 
     const jsonString = JSON.stringify(dataToSave)
