@@ -15,7 +15,7 @@
           <div class="flex justify-between items-center mb-6">
             <h2 class="text-xl font-semibold text-gray-900">图片生成设置</h2>
             <button
-              v-if="hasFormData()"
+              v-if="hasSavedData"
               @click="clearHistoryData"
               type="button"
               class="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1"
@@ -206,6 +206,34 @@
               <span v-else>生成图片</span>
             </button>
           </form>
+
+          <div class="border-t pt-6 mt-6">
+            <div class="mb-3">
+              <h3 class="text-lg font-medium text-gray-900">历史任务</h3>
+              <p class="mt-1 text-sm text-gray-500">
+                最近 {{ taskHistory.length }} / {{ MAX_TASK_HISTORY_ITEMS }} 个不同 prompt，点击可回填到提示词输入框
+              </p>
+            </div>
+
+            <div v-if="taskHistory.length > 0" class="space-y-2 max-h-80 overflow-y-auto pr-1">
+              <button
+                v-for="(prompt, index) in taskHistory"
+                :key="`${index}-${prompt}`"
+                type="button"
+                @click="applyHistoryPrompt(prompt)"
+                class="w-full rounded-md border border-gray-200 px-3 py-3 text-left transition-colors hover:border-primary-500 hover:bg-primary-50"
+              >
+                <div class="flex items-start gap-3">
+                  <span class="mt-0.5 text-xs font-medium text-primary-600">#{{ index + 1 }}</span>
+                  <span class="text-sm text-gray-700 break-words">{{ prompt }}</span>
+                </div>
+              </button>
+            </div>
+
+            <div v-else class="rounded-md border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
+              提交生成任务后，最近 100 个不同 prompt 会显示在这里。
+            </div>
+          </div>
         </div>
 
         <!-- 右侧：结果展示 -->
@@ -306,7 +334,16 @@
 <script>
 import { ref, reactive, watch, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
-import { saveFormData, loadFormData, clearFormData, hasFormData } from './utils/storage.js'
+import {
+  saveFormData,
+  loadFormData,
+  clearFormData,
+  hasFormData,
+  loadTaskHistory,
+  addTaskPrompt,
+  clearTaskHistory,
+  MAX_TASK_HISTORY_ITEMS
+} from './utils/storage.js'
 
 export default {
   name: 'App',
@@ -314,6 +351,8 @@ export default {
     const loading = ref(false)
     const error = ref('')
     const generatedImages = ref([])
+    const taskHistory = ref([])
+    const hasSavedFormData = ref(hasFormData())
     
     // 图片上传状态
     const uploadingIndex = ref(-1)
@@ -355,6 +394,10 @@ export default {
       }
     })
 
+    const hasSavedData = computed(() => {
+      return hasSavedFormData.value || taskHistory.value.length > 0
+    })
+
     // 防抖定时器
     let saveTimeout = null
 
@@ -370,7 +413,7 @@ export default {
       }
     )
 
-    // 监听表单变化，自动保存到Cookie（包含apiKey）
+    // 监听表单变化，自动保存到 localStorage（包含 apiKey）
     watch(
       () => form,
       (newForm) => {
@@ -378,15 +421,17 @@ export default {
         clearTimeout(saveTimeout)
         saveTimeout = setTimeout(() => {
           saveFormData(newForm)
+          hasSavedFormData.value = hasFormData()
         }, 1000)
       },
       { deep: true }
     )
 
-    // 页面加载时从Cookie恢复表单数据，并添加键盘事件监听
+    // 页面加载时恢复表单数据和任务历史，并添加键盘事件监听
     onMounted(() => {
       // 添加键盘事件监听
       document.addEventListener('keydown', handleKeydown)
+      taskHistory.value = loadTaskHistory()
       
       const savedData = loadFormData()
       if (savedData) {
@@ -407,9 +452,14 @@ export default {
           maxImages: savedData.maxImages || form.maxImages,
           watermark: savedData.watermark !== undefined ? savedData.watermark : form.watermark
         })
-        console.log('🔄 已从Cookie恢复表单数据（包含API Key）')
+        hasSavedFormData.value = true
+        console.log('🔄 已从 localStorage 恢复表单数据（包含 API Key）')
       }
     })
+
+    const applyHistoryPrompt = (prompt) => {
+      form.prompt = prompt
+    }
 
     const addImageUrl = () => {
       if (form.imageUrls.length < 5) {
@@ -490,8 +540,12 @@ export default {
 
     // 清除历史输入数据
     const clearHistoryData = () => {
-      if (confirm('确定要清除所有保存的历史输入数据吗？')) {
+      if (confirm('确定要清除所有保存的表单数据和任务历史吗？')) {
         clearFormData()
+        clearTaskHistory()
+        hasSavedFormData.value = false
+        taskHistory.value = []
+
         // 重置表单到默认值（除了apiKey）
         Object.assign(form, {
           apiEndpoint: 'ark.ap-southeast.bytepluses.com',
@@ -521,6 +575,10 @@ export default {
         return
       }
 
+      const normalizedPrompt = form.prompt.trim()
+      form.prompt = normalizedPrompt
+      taskHistory.value = addTaskPrompt(normalizedPrompt)
+
       loading.value = true
       error.value = ''
       generatedImages.value = []
@@ -531,7 +589,7 @@ export default {
 
         const requestData = {
           model: form.model,
-          prompt: form.prompt,
+          prompt: normalizedPrompt,
           sequential_image_generation: form.maxImages > 1 ? "auto" : "disabled",
           sequential_image_generation_options: {
             max_images: form.maxImages
@@ -622,6 +680,7 @@ export default {
     // 组件卸载时移除键盘事件监听
     onUnmounted(() => {
       document.removeEventListener('keydown', handleKeydown)
+      clearTimeout(saveTimeout)
       // 确保在组件卸载时恢复背景滚动
       document.body.style.overflow = 'auto'
     })
@@ -634,15 +693,18 @@ export default {
       modalImage,
       uploadingIndex,
       availableSizes,
+      taskHistory,
+      hasSavedData,
+      MAX_TASK_HISTORY_ITEMS,
       addImageUrl,
       uploadImage,
+      applyHistoryPrompt,
       clearHistoryData,
       generateImages,
       onImageLoad,
       onImageError,
       openImageModal,
-      closeImageModal,
-      hasFormData
+      closeImageModal
     }
   }
 }

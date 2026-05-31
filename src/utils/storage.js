@@ -1,59 +1,67 @@
 /**
- * Cookie存储工具函数
- * 用于保存和读取用户输入的表单数据
+ * localStorage 存储工具函数
+ * 用于保存表单数据和最近的 prompt 历史
  */
 
-const STORAGE_KEY = 'seedhub_form_data'
-const COOKIE_EXPIRES_DAYS = 30
+const FORM_STORAGE_KEY = 'seedhub_form_data'
+const TASK_HISTORY_STORAGE_KEY = 'seedhub_prompt_history'
 
-/**
- * 设置Cookie
- * @param {string} name Cookie名称
- * @param {string} value Cookie值
- * @param {number} days 过期天数
- */
-export function setCookie(name, value, days = COOKIE_EXPIRES_DAYS) {
-  const expires = new Date()
-  expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000))
-  document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/`
-}
+export const MAX_TASK_HISTORY_ITEMS = 100
 
-/**
- * 获取Cookie
- * @param {string} name Cookie名称
- * @returns {string|null} Cookie值
- */
-export function getCookie(name) {
-  const nameEQ = name + "="
-  const ca = document.cookie.split(';')
-  for (let i = 0; i < ca.length; i++) {
-    let c = ca[i]
-    while (c.charAt(0) === ' ') c = c.substring(1, c.length)
-    if (c.indexOf(nameEQ) === 0) {
-      return decodeURIComponent(c.substring(nameEQ.length, c.length))
-    }
+function getStorage() {
+  if (typeof window === 'undefined') {
+    return null
   }
-  return null
+
+  try {
+    return window.localStorage
+  } catch (error) {
+    console.error('❌ localStorage 不可用:', error)
+    return null
+  }
+}
+
+function setItem(key, value) {
+  const storage = getStorage()
+  if (!storage) {
+    return false
+  }
+
+  storage.setItem(key, value)
+  return true
+}
+
+function getItem(key) {
+  const storage = getStorage()
+  if (!storage) {
+    return null
+  }
+
+  return storage.getItem(key)
+}
+
+function removeItem(key) {
+  const storage = getStorage()
+  if (!storage) {
+    return false
+  }
+
+  storage.removeItem(key)
+  return true
+}
+
+function normalizePrompt(prompt) {
+  return typeof prompt === 'string' ? prompt.trim() : ''
 }
 
 /**
- * 删除Cookie
- * @param {string} name Cookie名称
- */
-export function deleteCookie(name) {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/`
-}
-
-/**
- * 保存表单数据到Cookie
+ * 保存表单数据到 localStorage
  * @param {Object} formData 表单数据对象
  */
 export function saveFormData(formData) {
   try {
-    // 过滤掉空的图片URL，只保存有内容的URL
     const validImageUrls = formData.imageUrls.filter(url => url && url.trim())
-    
-    // 保存所有表单数据，包括apiKey
+
     const dataToSave = {
       apiKey: formData.apiKey,
       apiEndpoint: formData.apiEndpoint,
@@ -64,27 +72,29 @@ export function saveFormData(formData) {
       maxImages: formData.maxImages,
       watermark: formData.watermark
     }
-    
+
     const jsonString = JSON.stringify(dataToSave)
-    setCookie(STORAGE_KEY, jsonString)
-    console.log('✅ 表单数据已保存到Cookie')
+    if (setItem(FORM_STORAGE_KEY, jsonString)) {
+      console.log('✅ 表单数据已保存到 localStorage')
+    }
   } catch (error) {
     console.error('❌ 保存表单数据失败:', error)
   }
 }
 
 /**
- * 从Cookie读取表单数据
+ * 从 localStorage 读取表单数据
  * @returns {Object|null} 表单数据对象
  */
 export function loadFormData() {
   try {
-    const jsonString = getCookie(STORAGE_KEY)
+    const jsonString = getItem(FORM_STORAGE_KEY)
     if (jsonString) {
       const formData = JSON.parse(jsonString)
-      console.log('✅ 从Cookie加载表单数据成功')
+      console.log('✅ 从 localStorage 加载表单数据成功')
       return formData
     }
+
     return null
   } catch (error) {
     console.error('❌ 读取表单数据失败:', error)
@@ -97,8 +107,9 @@ export function loadFormData() {
  */
 export function clearFormData() {
   try {
-    deleteCookie(STORAGE_KEY)
-    console.log('✅ 表单数据已清除')
+    if (removeItem(FORM_STORAGE_KEY)) {
+      console.log('✅ 表单数据已清除')
+    }
   } catch (error) {
     console.error('❌ 清除表单数据失败:', error)
   }
@@ -109,5 +120,65 @@ export function clearFormData() {
  * @returns {boolean} 是否存在保存的数据
  */
 export function hasFormData() {
-  return getCookie(STORAGE_KEY) !== null
+  return getItem(FORM_STORAGE_KEY) !== null
+}
+
+/**
+ * 读取最近的 prompt 历史
+ * @returns {string[]} prompt 列表
+ */
+export function loadTaskHistory() {
+  try {
+    const jsonString = getItem(TASK_HISTORY_STORAGE_KEY)
+    if (!jsonString) {
+      return []
+    }
+
+    const history = JSON.parse(jsonString)
+    return Array.isArray(history) ? history.filter(item => normalizePrompt(item)) : []
+  } catch (error) {
+    console.error('❌ 读取任务历史失败:', error)
+    return []
+  }
+}
+
+/**
+ * 新增一个 prompt 到历史记录，重复 prompt 会前移到顶部
+ * @param {string} prompt 提示词
+ * @returns {string[]} 最新历史记录
+ */
+export function addTaskPrompt(prompt) {
+  try {
+    const normalizedPrompt = normalizePrompt(prompt)
+    if (!normalizedPrompt) {
+      return loadTaskHistory()
+    }
+
+    const nextHistory = [
+      normalizedPrompt,
+      ...loadTaskHistory().filter(item => item !== normalizedPrompt)
+    ].slice(0, MAX_TASK_HISTORY_ITEMS)
+
+    if (setItem(TASK_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))) {
+      console.log('✅ 任务历史已更新')
+    }
+
+    return nextHistory
+  } catch (error) {
+    console.error('❌ 保存任务历史失败:', error)
+    return loadTaskHistory()
+  }
+}
+
+/**
+ * 清空任务历史
+ */
+export function clearTaskHistory() {
+  try {
+    if (removeItem(TASK_HISTORY_STORAGE_KEY)) {
+      console.log('✅ 任务历史已清除')
+    }
+  } catch (error) {
+    console.error('❌ 清除任务历史失败:', error)
+  }
 }
