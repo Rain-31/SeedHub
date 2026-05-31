@@ -265,33 +265,54 @@
           </form>
 
           <div class="border-t pt-6 mt-6">
-            <div class="mb-3">
-              <h3 class="text-lg font-medium text-gray-900">历史任务</h3>
-              <p class="mt-1 text-sm text-gray-500">
-                最近 {{ taskHistory.length }} / {{ MAX_TASK_HISTORY_ITEMS }} 个不同 prompt，点击可回填到提示词输入框
-              </p>
-            </div>
+            <button
+              type="button"
+              @click="toggleTaskHistory"
+              :aria-expanded="String(!isTaskHistoryCollapsed)"
+              class="flex w-full items-start justify-between gap-4 rounded-lg px-1 py-1 text-left transition-colors hover:bg-gray-50"
+            >
+              <div>
+                <h3 class="text-lg font-medium text-gray-900">历史任务</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                  最近 {{ taskHistory.length }} / {{ MAX_TASK_HISTORY_ITEMS }} 个不同 prompt，点击可回填到提示词输入框
+                </p>
+              </div>
+              <div class="flex items-center gap-2 pt-1 text-sm text-gray-500">
+                <span>{{ isTaskHistoryCollapsed ? '展开' : '折叠' }}</span>
+                <svg
+                  class="h-5 w-5 transition-transform"
+                  :class="isTaskHistoryCollapsed ? '-rotate-90' : 'rotate-0'"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+            </button>
 
-            <div v-if="taskHistory.length > 0" class="space-y-2 max-h-80 overflow-y-auto pr-1">
-              <button
-                v-for="(prompt, index) in taskHistory"
-                :key="`${index}-${prompt}`"
-                type="button"
-                @click="applyHistoryPrompt(prompt)"
-                class="w-full rounded-md border border-gray-200 px-3 py-3 text-left transition-colors hover:border-primary-500 hover:bg-primary-50"
-              >
-                <div class="flex min-w-0 items-start gap-3">
-                  <span class="mt-0.5 text-xs font-medium text-primary-600">#{{ index + 1 }}</span>
-                  <span
-                    :title="prompt"
-                    class="min-w-0 flex-1 truncate text-sm text-gray-700"
-                  >{{ prompt }}</span>
-                </div>
-              </button>
-            </div>
+            <div v-show="!isTaskHistoryCollapsed" class="mt-3">
+              <div v-if="taskHistory.length > 0" class="space-y-2 max-h-80 overflow-y-auto pr-1">
+                <button
+                  v-for="(prompt, index) in taskHistory"
+                  :key="`${index}-${prompt}`"
+                  type="button"
+                  @click="applyHistoryPrompt(prompt)"
+                  class="w-full rounded-md border border-gray-200 px-3 py-3 text-left transition-colors hover:border-primary-500 hover:bg-primary-50"
+                >
+                  <div class="flex min-w-0 items-start gap-3">
+                    <span class="mt-0.5 text-xs font-medium text-primary-600">#{{ index + 1 }}</span>
+                    <span
+                      :title="prompt"
+                      class="min-w-0 flex-1 truncate text-sm text-gray-700"
+                    >{{ prompt }}</span>
+                  </div>
+                </button>
+              </div>
 
-            <div v-else class="rounded-md border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
-              提交生成任务后，最近 100 个不同 prompt 会显示在这里。
+              <div v-else class="rounded-md border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
+                提交生成任务后，最近 100 个不同 prompt 会显示在这里。
+              </div>
             </div>
           </div>
         </div>
@@ -577,6 +598,7 @@ export default {
     const generatedImages = ref([])
     const generatedVideo = ref(null)
     const taskHistory = ref([])
+    const isTaskHistoryCollapsed = ref(false)
     const hasSavedFormData = ref(hasFormData())
     
     // 图片上传状态
@@ -1001,6 +1023,11 @@ export default {
 
     const applyHistoryPrompt = (prompt) => {
       form.prompt = prompt
+      isTaskHistoryCollapsed.value = true
+    }
+
+    const toggleTaskHistory = () => {
+      isTaskHistoryCollapsed.value = !isTaskHistoryCollapsed.value
     }
 
     const addImageUrl = () => {
@@ -1262,11 +1289,13 @@ export default {
       uploadingIndex,
       availableSizes,
       taskHistory,
+      isTaskHistoryCollapsed,
       hasSavedData,
       MAX_TASK_HISTORY_ITEMS,
       addImageUrl,
       uploadImage,
       applyHistoryPrompt,
+      toggleTaskHistory,
       clearHistoryData,
       generateImages,
       onImageLoad,
