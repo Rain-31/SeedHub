@@ -280,9 +280,12 @@
                 @click="applyHistoryPrompt(prompt)"
                 class="w-full rounded-md border border-gray-200 px-3 py-3 text-left transition-colors hover:border-primary-500 hover:bg-primary-50"
               >
-                <div class="flex items-start gap-3">
+                <div class="flex min-w-0 items-start gap-3">
                   <span class="mt-0.5 text-xs font-medium text-primary-600">#{{ index + 1 }}</span>
-                  <span class="text-sm text-gray-700 break-words">{{ prompt }}</span>
+                  <span
+                    :title="prompt"
+                    class="min-w-0 flex-1 truncate text-sm text-gray-700"
+                  >{{ prompt }}</span>
                 </div>
               </button>
             </div>
