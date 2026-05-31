@@ -5,6 +5,7 @@
 
 const FORM_STORAGE_KEY = 'seedhub_form_data'
 const TASK_HISTORY_STORAGE_KEY = 'seedhub_prompt_history'
+const VIDEO_TASK_STORAGE_KEY = 'seedhub_video_task_id'
 
 export const MAX_TASK_HISTORY_ITEMS = 100
 
@@ -50,8 +51,8 @@ function removeItem(key) {
   return true
 }
 
-function normalizePrompt(prompt) {
-  return typeof prompt === 'string' ? prompt.trim() : ''
+function normalizeText(value) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 /**
@@ -140,7 +141,7 @@ export function loadTaskHistory() {
     }
 
     const history = JSON.parse(jsonString)
-    return Array.isArray(history) ? history.filter(item => normalizePrompt(item)) : []
+    return Array.isArray(history) ? history.filter(item => normalizeText(item)) : []
   } catch (error) {
     console.error('❌ 读取任务历史失败:', error)
     return []
@@ -154,7 +155,7 @@ export function loadTaskHistory() {
  */
 export function addTaskPrompt(prompt) {
   try {
-    const normalizedPrompt = normalizePrompt(prompt)
+    const normalizedPrompt = normalizeText(prompt)
     if (!normalizedPrompt) {
       return loadTaskHistory()
     }
@@ -185,5 +186,43 @@ export function clearTaskHistory() {
     }
   } catch (error) {
     console.error('❌ 清除任务历史失败:', error)
+  }
+}
+
+export function saveVideoTaskId(taskId) {
+  try {
+    const normalizedTaskId = normalizeText(taskId)
+    if (!normalizedTaskId) {
+      return false
+    }
+
+    if (setItem(VIDEO_TASK_STORAGE_KEY, normalizedTaskId)) {
+      console.log('✅ 视频任务 ID 已保存')
+      return true
+    }
+
+    return false
+  } catch (error) {
+    console.error('❌ 保存视频任务 ID 失败:', error)
+    return false
+  }
+}
+
+export function loadVideoTaskId() {
+  try {
+    return normalizeText(getItem(VIDEO_TASK_STORAGE_KEY))
+  } catch (error) {
+    console.error('❌ 读取视频任务 ID 失败:', error)
+    return ''
+  }
+}
+
+export function clearVideoTaskId() {
+  try {
+    if (removeItem(VIDEO_TASK_STORAGE_KEY)) {
+      console.log('✅ 视频任务 ID 已清除')
+    }
+  } catch (error) {
+    console.error('❌ 清除视频任务 ID 失败:', error)
   }
 }

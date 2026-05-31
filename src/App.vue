@@ -485,6 +485,9 @@ import {
   loadTaskHistory,
   addTaskPrompt,
   clearTaskHistory,
+  saveVideoTaskId,
+  loadVideoTaskId,
+  clearVideoTaskId,
   MAX_TASK_HISTORY_ITEMS
 } from './utils/storage.js'
 
@@ -776,6 +779,12 @@ export default {
       return err.message || '请求失败'
     }
 
+    const buildRequestHeaders = () => ({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${form.apiKey.trim()}`,
+      'X-Target-Host': form.apiEndpoint.trim()
+    })
+
     const applyVideoTaskData = (taskData) => {
       videoTask.id = taskData.id || videoTask.id
       videoTask.status = taskData.status || videoTask.status
@@ -795,6 +804,20 @@ export default {
       })
     }
 
+    const setGeneratedVideo = (taskData) => {
+      if (!taskData.content || !taskData.content.video_url) {
+        throw new Error('视频结果中缺少 video_url')
+      }
+
+      generatedVideo.value = {
+        url: taskData.content.video_url,
+        resolution: taskData.resolution || form.size,
+        ratio: taskData.ratio || form.ratio,
+        duration: taskData.duration ?? form.duration,
+        framespersecond: taskData.framespersecond ?? null
+      }
+    }
+
     const pollVideoTask = async (taskId, headers, attempt = 0) => {
       const response = await axios.get(`/api/v3/contents/generations/tasks/${taskId}`, {
         headers
@@ -804,10 +827,12 @@ export default {
       applyVideoTaskData(taskData)
 
       if (taskData.status === 'succeeded') {
+        clearVideoTaskId()
         return taskData
       }
 
       if (['failed', 'expired', 'cancelled'].includes(taskData.status)) {
+        clearVideoTaskId()
         throw new Error(taskData.error && taskData.error.message ? taskData.error.message : `视频任务${videoStatusText.value}`)
       }
 
@@ -817,6 +842,40 @@ export default {
 
       await waitForDelay(VIDEO_POLL_INTERVAL)
       return pollVideoTask(taskId, headers, attempt + 1)
+    }
+
+    const resumeSavedVideoTask = async () => {
+      const savedTaskId = loadVideoTaskId()
+      if (!savedTaskId) {
+        return
+      }
+
+      videoTask.id = savedTaskId
+      videoTask.status = videoTask.status === 'idle' ? 'queued' : videoTask.status
+
+      if (!form.apiKey.trim() || !form.apiEndpoint.trim()) {
+        error.value = '检测到未完成的视频任务，但缺少 API Key 或 API Endpoint，无法自动恢复轮询'
+        return
+      }
+
+      clearTimeout(pollTimer)
+      error.value = ''
+      generatedImages.value = []
+      generatedVideo.value = null
+      loading.value = true
+
+      try {
+        const taskData = await pollVideoTask(savedTaskId, buildRequestHeaders())
+        setGeneratedVideo(taskData)
+      } catch (err) {
+        if (err.response || err.request) {
+          error.value = getApiErrorMessage(err)
+        } else {
+          error.value = `生成失败: ${err.message}`
+        }
+      } finally {
+        loading.value = false
+      }
     }
 
     const buildImageRequestData = (prompt, validImageUrls) => {
@@ -936,6 +995,8 @@ export default {
       } else {
         applyModelDefaults(form.model)
       }
+
+      resumeSavedVideoTask()
     })
 
     const applyHistoryPrompt = (prompt) => {
@@ -1024,6 +1085,7 @@ export default {
       if (confirm('确定要清除所有保存的表单数据和任务历史吗？')) {
         clearFormData()
         clearTaskHistory()
+        clearVideoTaskId()
         hasSavedFormData.value = false
         taskHistory.value = []
 
@@ -1078,11 +1140,7 @@ export default {
       resetGenerationState()
 
       try {
-        const headers = {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${form.apiKey}`,
-          'X-Target-Host': form.apiEndpoint
-        }
+        const headers = buildRequestHeaders()
 
         if (isVideoModel.value) {
           const createResponse = await axios.post(
@@ -1096,24 +1154,17 @@ export default {
             throw new Error('视频任务创建响应格式不正确')
           }
 
+          saveVideoTaskId(taskId)
           videoTask.id = taskId
           videoTask.status = 'queued'
 
           const taskData = await pollVideoTask(taskId, headers)
-          if (!taskData.content || !taskData.content.video_url) {
-            throw new Error('视频结果中缺少 video_url')
-          }
-
-          generatedVideo.value = {
-            url: taskData.content.video_url,
-            resolution: taskData.resolution || form.size,
-            ratio: taskData.ratio || form.ratio,
-            duration: taskData.duration ?? form.duration,
-            framespersecond: taskData.framespersecond ?? null
-          }
+          setGeneratedVideo(taskData)
 
           return
         }
+
+        clearVideoTaskId()
 
         const response = await axios.post(
           '/api/v3/images/generations',
