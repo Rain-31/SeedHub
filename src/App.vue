@@ -905,13 +905,16 @@ export default {
       const requestData = {
         model: form.model,
         prompt,
-        sequential_image_generation: form.maxImages > 1 ? 'auto' : 'disabled',
-        sequential_image_generation_options: {
-          max_images: form.maxImages
-        },
         response_format: 'url',
         size: form.size,
         watermark: form.watermark
+      }
+
+      if (form.model !== 'dola-seedream-5-0-pro-260628') {
+        requestData.sequential_image_generation = form.maxImages > 1 ? 'auto' : 'disabled'
+        requestData.sequential_image_generation_options = {
+          max_images: form.maxImages
+        }
       }
 
       if (validImageUrls.length > 0) {
