@@ -139,6 +139,7 @@
                     <option value="seedream-4-5-251128">SeedReam 4.5</option>
                     <option value="doubao-seedream-4-5-251128">Doubao SeedReam 4.5</option>
                     <option value="seedream-5-0-260128">SeedReam 5.0 Lite</option>
+                    <option value="seedream-5-0-pro">SeedReam 5.0 Pro</option>
                     <option value="dreamina-seedance-2-0-260128">Seedance 2.0</option>
                     <option value="seedance-1-5-pro-251215">Seedance 1.5 Pro</option>
                     <option value="seedance-1-0-pro-250528">Seedance 1.0 Pro</option>
@@ -512,7 +513,7 @@ import {
   MAX_TASK_HISTORY_ITEMS
 } from './utils/storage.js'
 
-const IMAGE_DEFAULT_ENDPOINT = 'ark.cn-beijing.volces.com'
+const IMAGE_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
 const VIDEO_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
 const VIDEO_POLL_INTERVAL = 5000
 const VIDEO_MAX_POLL_ATTEMPTS = 60
@@ -686,8 +687,8 @@ export default {
         }))
       }
 
-      if (form.model === 'seedream-5-0-260128') {
-        // Seedream 5.0 Lite 支持 2K、3K 和 4K
+      if (form.model === 'seedream-5-0-260128' || form.model === 'seedream-5-0-pro') {
+        // Seedream 5.0 Lite / Pro 支持 2K、3K 和 4K
         return [
           { value: '2K', label: '2K (2048x2048)' },
           { value: '3K', label: '3K (3072x3072)' },
