@@ -139,7 +139,7 @@
                     <option value="seedream-4-5-251128">SeedReam 4.5</option>
                     <option value="doubao-seedream-4-5-251128">Doubao SeedReam 4.5</option>
                     <option value="seedream-5-0-260128">SeedReam 5.0 Lite</option>
-                    <option value="seedream-5-0-pro">SeedReam 5.0 Pro</option>
+                    <option value="dola-seedream-5-0-pro-260628">SeedReam 5.0 Pro</option>
                     <option value="dreamina-seedance-2-0-260128">Seedance 2.0</option>
                     <option value="seedance-1-5-pro-251215">Seedance 1.5 Pro</option>
                     <option value="seedance-1-0-pro-250528">Seedance 1.0 Pro</option>
@@ -615,7 +615,7 @@ export default {
     const form = reactive({
       apiKey: '',
       apiEndpoint: IMAGE_DEFAULT_ENDPOINT,
-      model: 'doubao-seedream-4-0-250828',
+      model: 'dola-seedream-5-0-pro-260628',
       prompt: '',
       imageUrls: ['', ''],
       size: '2K',
@@ -687,7 +687,7 @@ export default {
         }))
       }
 
-      if (form.model === 'seedream-5-0-260128' || form.model === 'seedream-5-0-pro') {
+      if (form.model === 'seedream-5-0-260128' || form.model === 'dola-seedream-5-0-pro-260628') {
         // Seedream 5.0 Lite / Pro 支持 2K、3K 和 4K
         return [
           { value: '2K', label: '2K (2048x2048)' },
@@ -1120,7 +1120,7 @@ export default {
         // 重置表单到默认值（除了apiKey）
         Object.assign(form, {
           apiEndpoint: IMAGE_DEFAULT_ENDPOINT,
-          model: 'doubao-seedream-4-0-250828',
+          model: 'dola-seedream-5-0-pro-260628',
           prompt: '',
           imageUrls: ['', ''],
           size: '2K',
