@@ -615,7 +615,7 @@ export default {
     const form = reactive({
       apiKey: '',
       apiEndpoint: IMAGE_DEFAULT_ENDPOINT,
-      model: 'dola-seedream-5-0-pro-260628',
+      model: 'doubao-seedream-4-0-250828',
       prompt: '',
       imageUrls: ['', ''],
       size: '2K',
@@ -1120,7 +1120,7 @@ export default {
         // 重置表单到默认值（除了apiKey）
         Object.assign(form, {
           apiEndpoint: IMAGE_DEFAULT_ENDPOINT,
-          model: 'dola-seedream-5-0-pro-260628',
+          model: 'doubao-seedream-4-0-250828',
           prompt: '',
           imageUrls: ['', ''],
           size: '2K',
