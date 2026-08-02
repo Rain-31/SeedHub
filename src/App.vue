@@ -687,15 +687,29 @@ export default {
         }))
       }
 
-      if (form.model === 'seedream-5-0-260128' || form.model === 'dola-seedream-5-0-pro-260628') {
-        // Seedream 5.0 Lite / Pro 支持 2K、3K 和 4K
+      // 各图片模型支持的分辨率档位（参考火山引擎官方文档）
+      // - Seedream 5.0 Pro: 1K、2K
+      // - Seedream 5.0 Lite: 2K、3K、4K
+      // - Seedream 4.5: 2K、4K
+      // - Seedream 4.0: 1K、2K、4K
+      if (form.model === 'dola-seedream-5-0-pro-260628') {
+        return [
+          { value: '1K', label: '1K (1024x1024)' },
+          { value: '2K', label: '2K (2048x2048)' }
+        ]
+      } else if (form.model === 'seedream-5-0-260128') {
         return [
           { value: '2K', label: '2K (2048x2048)' },
           { value: '3K', label: '3K (3072x3072)' },
           { value: '4K', label: '4K (4096x4096)' }
         ]
+      } else if (form.model === 'seedream-4-5-251128' || form.model === 'doubao-seedream-4-5-251128') {
+        return [
+          { value: '2K', label: '2K (2048x2048)' },
+          { value: '4K', label: '4K (4096x4096)' }
+        ]
       } else {
-        // 其他模型支持 1K、2K、4K
+        // Seedream 4.0 等其他模型支持 1K、2K、4K
         return [
           { value: '1K', label: '1K (1024x1024)' },
           { value: '2K', label: '2K (2048x2048)' },
