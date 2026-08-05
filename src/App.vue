@@ -89,7 +89,7 @@
                     <input
                       v-model="form.imageUrls[index]"
                       type="text"
-                      :placeholder="isVideoModel ? `图片 ${index + 1} URL 或 base64` : `参考图片 ${index + 1} URL 或 base64`"
+                      :placeholder="isVideoModel ? `图片 ${index + 1} URL` : `参考图片 ${index + 1} URL`"
                       class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     />
                     <button
@@ -97,7 +97,7 @@
                       @click="uploadImage(index)"
                       :disabled="uploadingIndex === index"
                       class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-                      title="上传本地图片（转 base64）"
+                      title="上传本地图片到图床"
                     >
                       <svg v-if="uploadingIndex === index" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -106,7 +106,7 @@
                       <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
                       </svg>
-                      {{ uploadingIndex === index ? '转换中' : '上传' }}
+                      {{ uploadingIndex === index ? '上传中' : '上传' }}
                     </button>
                   </div>
                   <!-- 本地 base64 图片预览 -->
@@ -677,7 +677,7 @@ export default {
     const mediaFieldHint = computed(() => {
       return isVideoModel.value
         ? '可只填 1 张作为首帧，或填 2 张作为首帧和尾帧；也支持仅用提示词生成视频。'
-        : '可直接输入图片 URL，或点击上传按钮把本地图片转为 base64 直接提交（无需图床）。'
+        : '可直接输入图片 URL，或点击上传按钮把本地图片上传到图床后自动填入 URL。'
     })
     const addImageButtonText = computed(() => {
       return isVideoModel.value ? '+ 添加尾帧图片' : '+ 添加更多参考图片'
@@ -1079,26 +1079,24 @@ export default {
     // 判断字符串是否为 data: URL（即 base64 编码的本地图片）
     const isDataUrl = (str) => typeof str === 'string' && str.startsWith('data:')
 
-    // 使用 FileReader 读取本地文件为 base64 字符串
-    const readFileAsBase64 = (file) => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const result = reader.result
-          // reader.result 形如 "data:image/png;base64,xxxx"，取逗号之后的 base64 部分
-          const commaIndex = result.indexOf(',')
-          if (commaIndex === -1) {
-            reject(new Error('文件读取结果格式异常'))
-            return
-          }
-          resolve(result.substring(commaIndex + 1))
-        }
-        reader.onerror = () => reject(reader.error || new Error('文件读取失败'))
-        reader.readAsDataURL(file)
+    // 上传本地图片到 img.scdn.io 图床，返回图片 URL
+    const uploadToImgHost = async (file) => {
+      const formData = new FormData()
+      formData.append('image', file)
+      formData.append('cdn_domain', 'cloudflareimg.cdn.sn')
+
+      const resp = await fetch('https://img.scdn.io/api/v1.php', {
+        method: 'POST',
+        body: formData
       })
+      const result = await resp.json()
+      if (!result.success) {
+        throw new Error(result.error || result.message || '图床上传失败')
+      }
+      return result.url || result.data?.url
     }
 
-    // 图片上传功能（本地转 base64，不再走图床）
+    // 图片上传功能（上传到 img.scdn.io 图床，获取 URL）
     const uploadImage = async (index) => {
       // 创建文件输入元素
       const fileInput = document.createElement('input')
@@ -1115,26 +1113,15 @@ export default {
           return
         }
 
-        // 限制 4MB：base64 编码后约 5.3MB，避免 localStorage 超额
-        // （BytePlus 图生图接口本身支持单图最大 30MB，这里仅为前端体验限制）
-        if (file.size > 4 * 1024 * 1024) {
-          alert('图片文件大小不能超过 4MB（base64 编码会膨胀约 33%）')
-          return
-        }
-
         uploadingIndex.value = index
 
         try {
-          // 本地读取文件并转为 base64，直接以 data URL 形式填入输入框
-          // BytePlus 图生图 API 的 image 字段同时接受 URL 与 data:image/...;base64,... 两种格式
-          const base64 = await readFileAsBase64(file)
-          const dataUrl = `data:${file.type};base64,${base64}`
-
-          form.imageUrls[index] = dataUrl
-          console.log(`✅ 图片已转为 base64: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`)
+          const imgUrl = await uploadToImgHost(file)
+          form.imageUrls[index] = imgUrl
+          console.log(`✅ 图片已上传到图床: ${file.name} (${(file.size / 1024).toFixed(1)} KB) → ${imgUrl}`)
         } catch (err) {
-          console.error('❌ 图片转换失败:', err)
-          alert(`图片转换失败: ${err.message}`)
+          console.error('❌ 图片上传失败:', err)
+          alert(`图片上传失败: ${err.message}`)
         } finally {
           uploadingIndex.value = -1
         }
