@@ -62,7 +62,11 @@ function normalizeText(value) {
 export function saveFormData(formData) {
   try {
     const validImageUrls = Array.isArray(formData.imageUrls)
-      ? formData.imageUrls.filter(url => url && url.trim())
+      ? formData.imageUrls
+          .filter(url => url && url.trim())
+          // 不保存 base64 数据 URL：编码后体积膨胀约 33%，
+          // 多张图片会让 localStorage 立即超额，刷新后也无法解析
+          .filter(url => !url.startsWith('data:'))
       : []
 
     const dataToSave = {
