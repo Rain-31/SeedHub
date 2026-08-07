@@ -1080,10 +1080,13 @@ export default {
     const isDataUrl = (str) => typeof str === 'string' && str.startsWith('data:')
 
     // 上传本地图片到 img.scdn.io 图床，返回图片 URL
+    // 图片存储：Telegram（storage_destination=telegram）
+    // 图片CDN：CloudFlare(CN优选)-海外（cdn_domain=cloudflarecnimg.scdn.io）
     const uploadToImgHost = async (file) => {
       const formData = new FormData()
       formData.append('image', file)
-      formData.append('cdn_domain', 'cloudflareimg.cdn.sn')
+      formData.append('storage_destination', 'telegram')
+      formData.append('cdn_domain', 'cloudflarecnimg.scdn.io')
 
       const resp = await fetch('https://img.scdn.io/api/v1.php', {
         method: 'POST',
