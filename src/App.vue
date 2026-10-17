@@ -140,6 +140,7 @@
                     <option value="doubao-seedream-4-5-251128">Doubao SeedReam 4.5</option>
                     <option value="seedream-5-0-260128">SeedReam 5.0 Lite</option>
                     <option value="dola-seedream-5-0-pro-260628">SeedReam 5.0 Pro</option>
+                    <option value="dola-seedream-5-0-flash-260915">SeedReam 5.0 Flash</option>
                     <option value="dreamina-seedance-2-0-260128">Seedance 2.0</option>
                     <option value="seedance-1-5-pro-251215">Seedance 1.5 Pro</option>
                     <option value="seedance-1-0-pro-250528">Seedance 1.0 Pro</option>
@@ -515,6 +516,12 @@ import {
 
 const IMAGE_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
 const VIDEO_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
+// Seedream 5.0 pro / flash 仅支持单图生成，不支持批量（sequential）生图，
+// 传入 sequential_image_generation 会导致请求报错。
+const MODELS_WITHOUT_SEQUENTIAL_GENERATION = [
+  'dola-seedream-5-0-pro-260628',
+  'dola-seedream-5-0-flash-260915'
+]
 const VIDEO_POLL_INTERVAL = 5000
 const VIDEO_MAX_POLL_ATTEMPTS = 60
 
@@ -689,12 +696,19 @@ export default {
 
       // 各图片模型支持的分辨率档位（参考火山引擎官方文档）
       // - Seedream 5.0 Pro: 1K、2K
+      // - Seedream 5.0 Flash: 1K、1.5K、2K
       // - Seedream 5.0 Lite: 2K、3K、4K
       // - Seedream 4.5: 2K、4K
       // - Seedream 4.0: 1K、2K、4K
       if (form.model === 'dola-seedream-5-0-pro-260628') {
         return [
           { value: '1K', label: '1K (1024x1024)' },
+          { value: '2K', label: '2K (2048x2048)' }
+        ]
+      } else if (form.model === 'dola-seedream-5-0-flash-260915') {
+        return [
+          { value: '1K', label: '1K (1024x1024)' },
+          { value: '1.5K', label: '1.5K (1536x1536)' },
           { value: '2K', label: '2K (2048x2048)' }
         ]
       } else if (form.model === 'seedream-5-0-260128') {
@@ -924,7 +938,7 @@ export default {
         watermark: form.watermark
       }
 
-      if (form.model !== 'dola-seedream-5-0-pro-260628') {
+      if (!MODELS_WITHOUT_SEQUENTIAL_GENERATION.includes(form.model)) {
         requestData.sequential_image_generation = form.maxImages > 1 ? 'auto' : 'disabled'
         requestData.sequential_image_generation_options = {
           max_images: form.maxImages
