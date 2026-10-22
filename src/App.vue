@@ -276,7 +276,7 @@
               <div>
                 <h3 class="text-lg font-medium text-gray-900">历史任务</h3>
                 <p class="mt-1 text-sm text-gray-500">
-                  点击条目查看生成结果，点击提示词回填输入框；删除历史任务不会影响收藏
+                  点击条目查看生成结果；删除历史任务不会影响收藏
                 </p>
               </div>
               <div class="flex items-center gap-2 pt-1 text-sm text-gray-500">
@@ -351,9 +351,7 @@
                   <!-- 提示词 / 时间 -->
                   <div class="min-w-0 flex-1">
                     <p
-                      :title="task.prompt ? `点击回填提示词：${task.prompt}` : '该任务没有提示词'"
-                      @click.stop="applyHistoryPrompt(task.prompt)"
-                      class="line-clamp-2 cursor-pointer text-sm text-gray-700 transition-colors hover:text-primary-700"
+                      class="line-clamp-2 text-sm text-gray-700"
                     >{{ task.prompt || '（无提示词，仅使用参考图片）' }}</p>
                     <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
                       <span>{{ formatTaskTime(task.createdAt) }}</span>
@@ -1435,11 +1433,6 @@ export default {
       resumeSavedVideoTask()
     })
 
-    const applyHistoryPrompt = (prompt) => {
-      form.prompt = prompt
-      isTaskHistoryCollapsed.value = true
-    }
-
     const toggleTaskHistory = () => {
       isTaskHistoryCollapsed.value = !isTaskHistoryCollapsed.value
     }
@@ -1747,7 +1740,6 @@ export default {
       MAX_TASK_HISTORY_ITEMS,
       addImageUrl,
       uploadImage,
-      applyHistoryPrompt,
       toggleTaskHistory,
       switchHistoryTab,
       showTaskInResult,
