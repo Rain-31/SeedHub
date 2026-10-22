@@ -1,12 +1,16 @@
 /**
  * 历史任务 / 收藏任务数据层
  * 使用 Dexie（成熟的 IndexedDB 封装库）持久化任务记录、生成结果图片和收藏快照
+ *
+ * 原图 Blob 单独存放在 imageBlobs 表中，任务记录只保留缩略图、屏幕预览图和 blobKey，
+ * 避免读取历史列表时把几十张 2K/4K 原图一次性载入内存。
  */
 import Dexie from 'dexie'
 
 export const MAX_TASK_HISTORY_ITEMS = 50
 
 const THUMBNAIL_MAX_SIZE = 320
+const PREVIEW_MAX_SIZE = 1600
 
 const db = new Dexie('SeedHubTaskDB')
 
@@ -17,8 +21,46 @@ db.version(1).stores({
   favorites: '++id, favoritedAt, sourceTaskId'
 })
 
+db.version(2).stores({
+  tasks: '++id, createdAt',
+  favorites: '++id, favoritedAt, sourceTaskId',
+  // 原图 Blob 独立存储，任务记录中的 images[].blobKey 指向这里
+  imageBlobs: 'blobKey'
+}).upgrade(async tx => {
+  const blobTable = tx.table('imageBlobs')
+
+  for (const tableName of ['tasks', 'favorites']) {
+    const table = tx.table(tableName)
+    const records = await table.toArray()
+
+    for (const record of records) {
+      if (!Array.isArray(record.images)) {
+        continue
+      }
+
+      let changed = false
+      for (const image of record.images) {
+        if (!image.blob) {
+          continue
+        }
+
+        const blobKey = createBlobKey()
+        await blobTable.put({ blobKey, blob: image.blob })
+        image.blobKey = blobKey
+        delete image.blob
+        changed = true
+      }
+
+      if (changed) {
+        await table.put(record)
+      }
+    }
+  }
+})
+
 /**
  * 读取历史任务，按生成时间倒序
+ * 记录中不再包含原图 Blob，只含缩略图与预览图
  */
 export function listTasks() {
   return db.tasks.orderBy('createdAt').reverse().toArray()
@@ -29,6 +71,34 @@ export function listTasks() {
  */
 export function listFavorites() {
   return db.favorites.orderBy('favoritedAt').reverse().toArray()
+}
+
+function createBlobKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/**
+ * 将 images 中的原图 Blob 移到 imageBlobs 表，返回可直接持久化的图片元数据
+ */
+async function externalizeImageBlobs(images) {
+  if (!Array.isArray(images)) {
+    return images
+  }
+
+  return Promise.all(images.map(async image => {
+    if (!image || !image.blob) {
+      return image
+    }
+
+    const blobKey = createBlobKey()
+    await db.imageBlobs.put({ blobKey, blob: image.blob })
+
+    const { blob, ...rest } = image
+    return { ...rest, blobKey }
+  }))
 }
 
 async function pruneTasks() {
@@ -44,17 +114,55 @@ async function pruneTasks() {
 
   if (excessIds.length > 0) {
     await db.tasks.bulkDelete(excessIds)
+    await pruneOrphanBlobs()
   }
 }
 
 async function addTask(record) {
-  const id = await db.tasks.add(record)
+  const images = await externalizeImageBlobs(record.images)
+  const id = await db.tasks.add({ ...record, ...(images ? { images } : {}) })
   await pruneTasks()
-  return { ...record, id }
+  return { ...record, ...(images ? { images } : {}), id }
 }
 
 /**
- * 保存图片生成任务（包含原图 Blob 与缩略图 Blob）
+ * 收藏任务 / 历史任务中引用到的所有 blobKey
+ */
+async function collectReferencedBlobKeys() {
+  const keys = new Set()
+  const records = await Promise.all([db.tasks.toArray(), db.favorites.toArray()])
+
+  records.forEach(list => {
+    list.forEach(record => {
+      if (!Array.isArray(record.images)) {
+        return
+      }
+      record.images.forEach(image => {
+        if (image && image.blobKey) {
+          keys.add(image.blobKey)
+        }
+      })
+    })
+  })
+
+  return keys
+}
+
+/**
+ * 清理不再被任何历史/收藏任务引用的原图 Blob
+ */
+async function pruneOrphanBlobs() {
+  const referencedKeys = await collectReferencedBlobKeys()
+  const allKeys = await db.imageBlobs.toCollection().primaryKeys()
+  const orphanKeys = allKeys.filter(key => !referencedKeys.has(key))
+
+  if (orphanKeys.length > 0) {
+    await db.imageBlobs.bulkDelete(orphanKeys)
+  }
+}
+
+/**
+ * 保存图片生成任务（记录中只保留缩略图 / 预览图，原图存 imageBlobs）
  */
 export function saveImageTask(record) {
   return addTask({
@@ -73,16 +181,19 @@ export function saveVideoTask(record) {
   })
 }
 
-export function deleteTask(id) {
-  return db.tasks.delete(id)
+export async function deleteTask(id) {
+  await db.tasks.delete(id)
+  await pruneOrphanBlobs()
 }
 
-export function clearTasks() {
-  return db.tasks.clear()
+export async function clearTasks() {
+  await db.tasks.clear()
+  await pruneOrphanBlobs()
 }
 
 /**
  * 收藏任务：保存一份任务快照，之后即使历史任务被删除，收藏仍然保留
+ * 快照只引用 blobKey，不会重复写入原图数据
  */
 export async function addFavoriteTask(task) {
   const sourceTaskId = task.sourceTaskId ?? task.id
@@ -103,8 +214,10 @@ export async function addFavoriteTask(task) {
           images: images.map(image => ({
             url: image.url,
             revised_prompt: image.revised_prompt,
+            blobKey: image.blobKey,
             blob: image.blob,
             thumbnail: image.thumbnail,
+            preview: image.preview,
             mimeType: image.mimeType
           }))
         }
@@ -112,15 +225,20 @@ export async function addFavoriteTask(task) {
     ...(video ? { video: { ...video } } : {})
   }
 
+  const storedImages = await externalizeImageBlobs(snapshot.images)
+  const { images: _ignored, ...snapshotRest } = snapshot
+
   return db.favorites.add({
-    ...snapshot,
+    ...snapshotRest,
+    ...(storedImages ? { images: storedImages } : {}),
     sourceTaskId,
     favoritedAt: Date.now()
   })
 }
 
-export function removeFavoriteTask(id) {
-  return db.favorites.delete(id)
+export async function removeFavoriteTask(id) {
+  await db.favorites.delete(id)
+  await pruneOrphanBlobs()
 }
 
 /**
@@ -151,6 +269,18 @@ export async function fetchImageBlob(url) {
 }
 
 /**
+ * 读取原图 Blob（仅下载原图时使用）
+ */
+export async function getImageBlob(blobKey) {
+  if (!blobKey) {
+    return null
+  }
+
+  const record = await db.imageBlobs.get(blobKey)
+  return record && record.blob ? record.blob : null
+}
+
+/**
  * 通过 Image 元素解码 Blob（部分浏览器不支持 createImageBitmap 时的回退方案）
  */
 function decodeWithImageElement(blob) {
@@ -171,9 +301,9 @@ function decodeWithImageElement(blob) {
 }
 
 /**
- * 使用 canvas 生成缩略图，避免历史列表加载大图
+ * 将图片 Blob 等比缩放到指定最长边并重新编码为 JPEG
  */
-export async function createThumbnailBlob(blob) {
+async function createResizedBlob(blob, maxSize, quality) {
   if (!blob || typeof document === 'undefined') {
     return null
   }
@@ -193,14 +323,14 @@ export async function createThumbnailBlob(blob) {
   }
 
   if (!source) {
-    console.warn('⚠️ 生成缩略图失败: 无法解码图片')
+    console.warn('⚠️ 生成图片尺寸失败: 无法解码图片')
     return null
   }
 
   try {
     const sourceWidth = source.width || source.naturalWidth
     const sourceHeight = source.height || source.naturalHeight
-    const scale = Math.min(1, THUMBNAIL_MAX_SIZE / Math.max(sourceWidth, sourceHeight))
+    const scale = Math.min(1, maxSize / Math.max(sourceWidth, sourceHeight))
     const width = Math.max(1, Math.round(sourceWidth * scale))
     const height = Math.max(1, Math.round(sourceHeight * scale))
 
@@ -219,12 +349,66 @@ export async function createThumbnailBlob(blob) {
     }
 
     return await new Promise(resolve => {
-      canvas.toBlob(resolve, 'image/jpeg', 0.8)
+      canvas.toBlob(resolve, 'image/jpeg', quality)
     })
   } catch (error) {
-    console.warn('⚠️ 生成缩略图失败:', error)
+    console.warn('⚠️ 生成图片尺寸失败:', error)
     return null
   }
+}
+
+/**
+ * 使用 canvas 生成缩略图，避免历史列表加载大图
+ */
+export function createThumbnailBlob(blob) {
+  return createResizedBlob(blob, THUMBNAIL_MAX_SIZE, 0.8)
+}
+
+/**
+ * 生成屏幕尺寸预览图（最长边 1600px），用于结果区和图片弹窗，避免直接解码 2K/4K 原图
+ */
+export function createPreviewBlob(blob) {
+  return createResizedBlob(blob, PREVIEW_MAX_SIZE, 0.82)
+}
+
+/**
+ * 为缺少预览图的历史记录补生成预览图（迁移过来的旧数据）
+ * @param {'tasks' | 'favorites'} tableName
+ * @param {number} taskId
+ * @returns {Promise<object|null>} 更新后的任务记录
+ */
+export async function ensurePreviews(tableName, taskId) {
+  const table = tableName === 'favorites' ? db.favorites : db.tasks
+  const record = await table.get(taskId)
+
+  if (!record || !Array.isArray(record.images)) {
+    return record || null
+  }
+
+  let changed = false
+
+  for (const image of record.images) {
+    if (!image || image.preview || !image.blobKey) {
+      continue
+    }
+
+    const blobRecord = await db.imageBlobs.get(image.blobKey)
+    if (!blobRecord || !blobRecord.blob) {
+      continue
+    }
+
+    const preview = await createPreviewBlob(blobRecord.blob)
+    if (preview) {
+      image.preview = preview
+      changed = true
+    }
+  }
+
+  if (changed) {
+    await table.put(record)
+  }
+
+  return record
 }
 
 /**

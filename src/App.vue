@@ -436,6 +436,7 @@
               <img
                 :src="image.url"
                 :alt="`生成的图片 ${index + 1}`"
+                decoding="async"
                 class="w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
                 @load="onImageLoad"
                 @error="onImageError"
@@ -576,6 +577,7 @@
         <img
           :src="modalImage.url"
           :alt="modalImage.alt"
+          decoding="async"
           class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
           @click.stop
         />
@@ -613,6 +615,9 @@ import {
   removeFavoriteTask,
   fetchImageBlob,
   createThumbnailBlob,
+  createPreviewBlob,
+  ensurePreviews,
+  getImageBlob,
   getImageExtension
 } from './utils/taskDb.js'
 
@@ -885,7 +890,7 @@ export default {
       }
 
       const firstImage = task.images[0]
-      const thumbnailBlob = firstImage.thumbnail || firstImage.blob || null
+      const thumbnailBlob = firstImage.thumbnail || firstImage.preview || null
       const remoteUrl = firstImage.url || ''
 
       // 缩略图 Blob 写入失败时（如生成结果图片跨域无法转存），直接回退到远程地址展示
@@ -964,15 +969,21 @@ export default {
         return []
       }
 
-      return task.images.map(image => ({
-        url: image.blob ? createResultObjectUrl(image.blob) : image.url,
-        remoteUrl: image.url,
-        blob: image.blob || null,
-        revised_prompt: image.revised_prompt
-      }))
+      return task.images.map(image => {
+        // 结果区与弹窗优先使用屏幕尺寸预览图，原图仅用于下载
+        const displayBlob = image.preview || image.blob || null
+
+        return {
+          url: displayBlob ? createResultObjectUrl(displayBlob) : (image.url || ''),
+          remoteUrl: image.url || '',
+          blobKey: image.blobKey || '',
+          blob: image.blob || null,
+          revised_prompt: image.revised_prompt
+        }
+      })
     }
 
-    const showTaskInResult = (task) => {
+    const showTaskInResult = async (task) => {
       if (!task) {
         return
       }
@@ -998,7 +1009,29 @@ export default {
         return
       }
 
-      generatedImages.value = buildResultImages(task)
+      let resultTask = task
+      const needsPreview = Array.isArray(task.images)
+        && task.images.some(image => image && !image.preview && image.blobKey)
+
+      // 旧数据没有预览图时，按需补生成后刷新结果
+      if (needsPreview) {
+        try {
+          const tableName = historyTab.value === 'favorites' ? 'favorites' : 'tasks'
+          const hydrated = await ensurePreviews(tableName, task.id)
+          if (hydrated) {
+            resultTask = hydrated
+          }
+        } catch (err) {
+          console.error('❌ 生成任务预览图失败:', err)
+        }
+      }
+
+      // 等待期间可能已经切换到别的任务
+      if (currentResultTask.value !== task) {
+        return
+      }
+
+      generatedImages.value = buildResultImages(resultTask)
     }
 
     const switchHistoryTab = (tab) => {
@@ -1042,6 +1075,11 @@ export default {
 
     const downloadImage = async (image, index) => {
       let blob = image.blob
+
+      // 原图已独立存放，需要按 blobKey 取出
+      if (!blob && image.blobKey) {
+        blob = await getImageBlob(image.blobKey)
+      }
 
       if (!blob && image.remoteUrl) {
         blob = await fetchImageBlob(image.remoteUrl)
@@ -1330,17 +1368,19 @@ export default {
       return value === -1 ? '自动' : `${value} 秒`
     }
 
-    // 将生成结果图片转存为 Blob 与缩略图后写入 IndexedDB
+    // 将生成结果图片转存为原图、缩略图与预览图后写入 IndexedDB
     const persistImageTask = async (apiImages, prompt) => {
       const images = await Promise.all(apiImages.map(async item => {
         const blob = item.url ? await fetchImageBlob(item.url) : null
         const thumbnail = blob ? await createThumbnailBlob(blob) : null
+        const preview = blob ? await createPreviewBlob(blob) : null
 
         return {
           url: item.url,
           revised_prompt: item.revised_prompt,
           blob,
           thumbnail,
+          preview,
           mimeType: blob ? blob.type : ''
         }
       }))
