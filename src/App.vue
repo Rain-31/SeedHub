@@ -276,7 +276,7 @@
               <div>
                 <h3 class="text-lg font-medium text-gray-900">历史任务</h3>
                 <p class="mt-1 text-sm text-gray-500">
-                  最近 {{ taskHistory.length }} / {{ MAX_TASK_HISTORY_ITEMS }} 个不同 prompt，点击可回填到提示词输入框
+                  点击条目查看生成结果，点击提示词回填输入框；删除历史任务不会影响收藏
                 </p>
               </div>
               <div class="flex items-center gap-2 pt-1 text-sm text-gray-500">
@@ -294,26 +294,115 @@
             </button>
 
             <div v-show="!isTaskHistoryCollapsed" class="mt-3">
-              <div v-if="taskHistory.length > 0" class="space-y-2 max-h-80 overflow-y-auto pr-1">
+              <!-- 历史任务 / 收藏任务切换 -->
+              <div class="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
                 <button
-                  v-for="(prompt, index) in taskHistory"
-                  :key="`${index}-${prompt}`"
                   type="button"
-                  @click="applyHistoryPrompt(prompt)"
-                  class="w-full rounded-md border border-gray-200 px-3 py-3 text-left transition-colors hover:border-primary-500 hover:bg-primary-50"
+                  @click="switchHistoryTab('history')"
+                  class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                  :class="historyTab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
                 >
-                  <div class="flex min-w-0 items-start gap-3">
-                    <span class="mt-0.5 text-xs font-medium text-primary-600">#{{ index + 1 }}</span>
-                    <span
-                      :title="prompt"
-                      class="min-w-0 flex-1 truncate text-sm text-gray-700"
-                    >{{ prompt }}</span>
-                  </div>
+                  历史任务
+                  <span class="ml-1 text-xs font-normal">{{ historyTasks.length }}</span>
+                </button>
+                <button
+                  type="button"
+                  @click="switchHistoryTab('favorites')"
+                  class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                  :class="historyTab === 'favorites' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                >
+                  收藏任务
+                  <span class="ml-1 text-xs font-normal">{{ favoriteTasks.length }}</span>
                 </button>
               </div>
 
-              <div v-else class="rounded-md border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
-                提交生成任务后，最近 100 个不同 prompt 会显示在这里。
+              <div v-if="displayedTasks.length > 0" class="mt-2 max-h-96 space-y-2 overflow-y-auto pr-1">
+                <div
+                  v-for="task in displayedTasks"
+                  :key="`${historyTab}-${task.id}`"
+                  role="button"
+                  tabindex="0"
+                  @click="showTaskInResult(task)"
+                  @keydown.enter="showTaskInResult(task)"
+                  class="flex w-full cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors"
+                  :class="isTaskSelected(task)
+                    ? 'border-primary-500 bg-primary-50'
+                    : 'border-gray-200 hover:border-primary-400 hover:bg-gray-50'"
+                >
+                  <!-- 缩略图 -->
+                  <div class="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-100">
+                    <img
+                      v-if="task.thumbnailUrl"
+                      :src="task.thumbnailUrl"
+                      alt="任务缩略图"
+                      class="h-full w-full object-cover"
+                    />
+                    <div v-else class="flex h-full w-full items-center justify-center text-gray-400">
+                      <svg v-if="task.type === 'video'" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                      </svg>
+                      <svg v-else class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- 提示词 / 时间 -->
+                  <div class="min-w-0 flex-1">
+                    <p
+                      :title="task.prompt ? `点击回填提示词：${task.prompt}` : '该任务没有提示词'"
+                      @click.stop="applyHistoryPrompt(task.prompt)"
+                      class="line-clamp-2 cursor-pointer text-sm text-gray-700 transition-colors hover:text-primary-700"
+                    >{{ task.prompt || '（无提示词，仅使用参考图片）' }}</p>
+                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+                      <span>{{ formatTaskTime(task.createdAt) }}</span>
+                      <span class="text-gray-300">·</span>
+                      <span>{{ getTaskSummary(task) }}</span>
+                    </div>
+                  </div>
+
+                  <!-- 收藏 / 删除 -->
+                  <div class="flex flex-shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      @click.stop="toggleFavoriteTask(task)"
+                      :title="isTaskFavorited(task) ? '取消收藏' : '收藏任务'"
+                      class="rounded-md p-1.5 transition-colors"
+                      :class="isTaskFavorited(task)
+                        ? 'text-amber-500 hover:bg-amber-50'
+                        : 'text-gray-400 hover:bg-gray-100 hover:text-amber-500'"
+                    >
+                      <svg
+                        class="h-5 w-5"
+                        :fill="isTaskFavorited(task) ? 'currentColor' : 'none'"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                      </svg>
+                    </button>
+                    <button
+                      v-if="historyTab === 'history'"
+                      type="button"
+                      @click.stop="removeHistoryTask(task)"
+                      title="删除历史任务"
+                      class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H9a1 1 0 00-1 1v3M4 7h16"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="mt-2 rounded-md border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
+                <template v-if="historyTab === 'history'">
+                  提交生成任务后，任务与生成结果会保存在这里（最多保留最近 {{ MAX_TASK_HISTORY_ITEMS }} 个）。
+                </template>
+                <template v-else>
+                  在历史任务中点击星标即可收藏，删除历史任务不会删除收藏。
+                </template>
               </div>
             </div>
           </div>
@@ -354,15 +443,19 @@
                 @click="openImageModal(image.url, `生成的图片 ${index + 1}`)"
               />
               <div class="p-3 bg-gray-50">
-                <div class="flex justify-between items-center">
+                <div class="flex justify-between items-center gap-3">
                   <span class="text-sm text-gray-600">图片 {{ index + 1 }}</span>
-                  <a
-                    :href="image.url"
-                    target="_blank"
-                    class="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                  <button
+                    type="button"
+                    @click="downloadImage(image, index)"
+                    class="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 text-sm font-medium"
+                    title="从 IndexedDB 保存原图到本地"
                   >
-                    查看原图
-                  </a>
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    下载原图
+                  </button>
                 </div>
               </div>
             </div>
@@ -505,14 +598,24 @@ import {
   loadFormData,
   clearFormData,
   hasFormData,
-  loadTaskHistory,
-  addTaskPrompt,
-  clearTaskHistory,
   saveVideoTaskId,
   loadVideoTaskId,
-  clearVideoTaskId,
-  MAX_TASK_HISTORY_ITEMS
+  clearVideoTaskId
 } from './utils/storage.js'
+import {
+  MAX_TASK_HISTORY_ITEMS,
+  listTasks,
+  listFavorites,
+  saveImageTask,
+  saveVideoTask,
+  deleteTask,
+  clearTasks,
+  addFavoriteTask,
+  removeFavoriteTask,
+  fetchImageBlob,
+  createThumbnailBlob,
+  getImageExtension
+} from './utils/taskDb.js'
 
 const IMAGE_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
 const VIDEO_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
@@ -605,8 +708,12 @@ export default {
     const error = ref('')
     const generatedImages = ref([])
     const generatedVideo = ref(null)
-    const taskHistory = ref([])
+    const historyTasks = ref([])
+    const favoriteTasks = ref([])
+    const historyTab = ref('history')
     const isTaskHistoryCollapsed = ref(false)
+    const selectedTaskKey = ref('')
+    const currentResultTask = ref(null)
     const hasSavedFormData = ref(hasFormData())
     
     // 图片上传状态
@@ -732,13 +839,215 @@ export default {
       }
     })
 
+    const displayedTasks = computed(() => {
+      return historyTab.value === 'history' ? historyTasks.value : favoriteTasks.value
+    })
+
+    const favoriteSourceIds = computed(() => {
+      return new Set(favoriteTasks.value.map(task => task.sourceTaskId).filter(Boolean))
+    })
+
     const hasSavedData = computed(() => {
-      return hasSavedFormData.value || taskHistory.value.length > 0
+      return hasSavedFormData.value || historyTasks.value.length > 0 || favoriteTasks.value.length > 0
     })
 
     // 防抖定时器
     let saveTimeout = null
     let pollTimer = null
+    // 列表缩略图与结果大图各自维护 Blob URL，避免频繁生成造成内存泄漏
+    let listObjectUrls = []
+    let resultObjectUrls = []
+
+    const createListObjectUrl = (blob) => {
+      const url = URL.createObjectURL(blob)
+      listObjectUrls.push(url)
+      return url
+    }
+
+    const releaseListObjectUrls = () => {
+      listObjectUrls.forEach(url => URL.revokeObjectURL(url))
+      listObjectUrls = []
+    }
+
+    const createResultObjectUrl = (blob) => {
+      const url = URL.createObjectURL(blob)
+      resultObjectUrls.push(url)
+      return url
+    }
+
+    const releaseResultObjectUrls = () => {
+      resultObjectUrls.forEach(url => URL.revokeObjectURL(url))
+      resultObjectUrls = []
+    }
+
+    const getTaskThumbnailBlob = (task) => {
+      if (task.type !== 'image' || !Array.isArray(task.images) || task.images.length === 0) {
+        return null
+      }
+
+      const firstImage = task.images[0]
+      return firstImage.thumbnail || firstImage.blob || null
+    }
+
+    const hydrateListTask = (task) => {
+      const thumbnailBlob = getTaskThumbnailBlob(task)
+      return {
+        ...task,
+        thumbnailUrl: thumbnailBlob ? createListObjectUrl(thumbnailBlob) : ''
+      }
+    }
+
+    const refreshTaskLists = async () => {
+      releaseListObjectUrls()
+
+      try {
+        const [tasks, favorites] = await Promise.all([listTasks(), listFavorites()])
+        historyTasks.value = tasks.map(hydrateListTask)
+        favoriteTasks.value = favorites.map(hydrateListTask)
+      } catch (err) {
+        console.error('❌ 读取 IndexedDB 任务失败:', err)
+      }
+    }
+
+    const formatTaskTime = (timestamp) => {
+      if (!timestamp) {
+        return ''
+      }
+
+      const date = new Date(timestamp)
+      const pad = value => String(value).padStart(2, '0')
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    }
+
+    const formatFileTimestamp = (timestamp) => {
+      const date = new Date(timestamp || Date.now())
+      const pad = value => String(value).padStart(2, '0')
+      return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+    }
+
+    const getTaskSummary = (task) => {
+      if (task.type === 'video') {
+        return '视频'
+      }
+
+      const count = Array.isArray(task.images) ? task.images.length : 0
+      return `${count} 张图片`
+    }
+
+    const isTaskFavorited = (task) => {
+      return favoriteSourceIds.value.has(task.sourceTaskId ?? task.id)
+    }
+
+    const isTaskSelected = (task) => {
+      return selectedTaskKey.value === `${historyTab.value}-${task.id}`
+    }
+
+    const buildResultImages = (task) => {
+      if (!Array.isArray(task.images)) {
+        return []
+      }
+
+      return task.images.map(image => ({
+        url: image.blob ? createResultObjectUrl(image.blob) : image.url,
+        remoteUrl: image.url,
+        blob: image.blob || null,
+        revised_prompt: image.revised_prompt
+      }))
+    }
+
+    const showTaskInResult = (task) => {
+      if (!task) {
+        return
+      }
+
+      releaseResultObjectUrls()
+      error.value = ''
+      generatedImages.value = []
+      generatedVideo.value = null
+      resetVideoTask()
+      currentResultTask.value = task
+      selectedTaskKey.value = `${historyTab.value}-${task.id}`
+
+      if (task.type === 'video') {
+        if (task.video && task.video.url) {
+          generatedVideo.value = { ...task.video }
+          videoTask.id = task.videoTaskId || ''
+          videoTask.status = 'succeeded'
+          videoTask.resolution = task.video.resolution || ''
+          videoTask.ratio = task.video.ratio || ''
+          videoTask.duration = task.video.duration ?? null
+        }
+        return
+      }
+
+      generatedImages.value = buildResultImages(task)
+    }
+
+    const switchHistoryTab = (tab) => {
+      historyTab.value = tab
+    }
+
+    const toggleFavoriteTask = async (task) => {
+      const sourceTaskId = task.sourceTaskId ?? task.id
+      const existingFavorite = favoriteTasks.value.find(item => item.sourceTaskId === sourceTaskId)
+
+      try {
+        if (existingFavorite) {
+          await removeFavoriteTask(existingFavorite.id)
+        } else {
+          await addFavoriteTask(task)
+        }
+
+        await refreshTaskLists()
+      } catch (err) {
+        console.error('❌ 更新收藏失败:', err)
+        alert('更新收藏失败，请稍后重试')
+      }
+    }
+
+    const removeHistoryTask = async (task) => {
+      if (!confirm('确定删除这条历史任务吗？已收藏的任务不会被删除。')) {
+        return
+      }
+
+      try {
+        await deleteTask(task.id)
+        if (selectedTaskKey.value === `history-${task.id}`) {
+          selectedTaskKey.value = ''
+        }
+        await refreshTaskLists()
+      } catch (err) {
+        console.error('❌ 删除历史任务失败:', err)
+        alert('删除历史任务失败，请稍后重试')
+      }
+    }
+
+    const downloadImage = async (image, index) => {
+      let blob = image.blob
+
+      if (!blob && image.remoteUrl) {
+        blob = await fetchImageBlob(image.remoteUrl)
+      }
+
+      if (blob) {
+        const downloadUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = downloadUrl
+        link.download = `seedhub-${formatFileTimestamp(currentResultTask.value && currentResultTask.value.createdAt)}-${index + 1}.${getImageExtension(blob, image.remoteUrl)}`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+        return
+      }
+
+      if (image.remoteUrl) {
+        window.open(image.remoteUrl, '_blank')
+        return
+      }
+
+      alert('图片数据不存在，无法下载')
+    }
 
     const resetVideoTask = () => {
       Object.assign(videoTask, {
@@ -754,9 +1063,12 @@ export default {
     }
 
     const resetGenerationState = () => {
+      releaseResultObjectUrls()
       error.value = ''
       generatedImages.value = []
       generatedVideo.value = null
+      currentResultTask.value = null
+      selectedTaskKey.value = ''
       resetVideoTask()
     }
 
@@ -918,6 +1230,17 @@ export default {
       try {
         const taskData = await pollVideoTask(savedTaskId, buildRequestHeaders())
         setGeneratedVideo(taskData)
+
+        try {
+          const savedTask = await persistVideoTask(form.prompt.trim())
+          currentResultTask.value = savedTask
+          if (savedTask) {
+            selectedTaskKey.value = `history-${savedTask.id}`
+            await refreshTaskLists()
+          }
+        } catch (saveError) {
+          console.error('❌ 保存视频任务到 IndexedDB 失败:', saveError)
+        }
       } catch (err) {
         if (err.response || err.request) {
           error.value = getApiErrorMessage(err)
@@ -989,6 +1312,46 @@ export default {
       return value === -1 ? '自动' : `${value} 秒`
     }
 
+    // 将生成结果图片转存为 Blob 与缩略图后写入 IndexedDB
+    const persistImageTask = async (apiImages, prompt) => {
+      const images = await Promise.all(apiImages.map(async item => {
+        const blob = item.url ? await fetchImageBlob(item.url) : null
+        const thumbnail = blob ? await createThumbnailBlob(blob) : null
+
+        return {
+          url: item.url,
+          revised_prompt: item.revised_prompt,
+          blob,
+          thumbnail,
+          mimeType: blob ? blob.type : ''
+        }
+      }))
+
+      return saveImageTask({
+        prompt,
+        createdAt: Date.now(),
+        model: form.model,
+        size: form.size,
+        watermark: form.watermark,
+        images
+      })
+    }
+
+    // 视频任务仅保存地址等元信息，暂不生成缩略图
+    const persistVideoTask = (prompt) => {
+      if (!generatedVideo.value) {
+        return null
+      }
+
+      return saveVideoTask({
+        prompt,
+        createdAt: Date.now(),
+        model: form.model,
+        videoTaskId: videoTask.id,
+        video: { ...generatedVideo.value }
+      })
+    }
+
     // 监听模型变化，调整尺寸选项
     watch(
       () => form.model,
@@ -1013,11 +1376,11 @@ export default {
     )
 
     // 页面加载时恢复表单数据和任务历史，并添加键盘事件监听
-    onMounted(() => {
+    onMounted(async () => {
       // 添加键盘事件监听
       document.addEventListener('keydown', handleKeydown)
-      taskHistory.value = loadTaskHistory()
-      
+      await refreshTaskLists()
+
       const savedData = loadFormData()
       if (savedData) {
         const savedModel = savedData.model || form.model
@@ -1139,14 +1502,19 @@ export default {
       fileInput.click()
     }
 
-    // 清除历史输入数据
-    const clearHistoryData = () => {
-      if (confirm('确定要清除所有保存的表单数据和任务历史吗？')) {
+    // 清除历史输入数据（收藏任务会保留）
+    const clearHistoryData = async () => {
+      if (confirm('确定要清除所有保存的表单数据和历史任务吗？收藏任务会保留。')) {
         clearFormData()
-        clearTaskHistory()
         clearVideoTaskId()
         hasSavedFormData.value = false
-        taskHistory.value = []
+
+        try {
+          await clearTasks()
+          await refreshTaskLists()
+        } catch (err) {
+          console.error('❌ 清除历史任务失败:', err)
+        }
 
         // 重置表单到默认值（除了apiKey）
         Object.assign(form, {
@@ -1193,7 +1561,6 @@ export default {
       }
 
       form.prompt = normalizedPrompt
-      taskHistory.value = addTaskPrompt(normalizedPrompt)
 
       loading.value = true
       resetGenerationState()
@@ -1220,6 +1587,17 @@ export default {
           const taskData = await pollVideoTask(taskId, headers)
           setGeneratedVideo(taskData)
 
+          try {
+            const savedTask = await persistVideoTask(normalizedPrompt)
+            currentResultTask.value = savedTask
+            if (savedTask) {
+              selectedTaskKey.value = `history-${savedTask.id}`
+              await refreshTaskLists()
+            }
+          } catch (saveError) {
+            console.error('❌ 保存视频任务到 IndexedDB 失败:', saveError)
+          }
+
           return
         }
 
@@ -1235,10 +1613,29 @@ export default {
           throw new Error('API响应格式不正确')
         }
 
-        generatedImages.value = response.data.data.map(item => ({
-          url: item.url,
-          revised_prompt: item.revised_prompt
-        }))
+        const apiImages = response.data.data
+        let savedTask = null
+
+        try {
+          savedTask = await persistImageTask(apiImages, normalizedPrompt)
+        } catch (saveError) {
+          console.error('❌ 保存生成结果到 IndexedDB 失败:', saveError)
+        }
+
+        currentResultTask.value = savedTask
+        generatedImages.value = savedTask
+          ? buildResultImages(savedTask)
+          : apiImages.map(item => ({
+            url: item.url,
+            remoteUrl: item.url,
+            blob: null,
+            revised_prompt: item.revised_prompt
+          }))
+
+        if (savedTask) {
+          selectedTaskKey.value = `history-${savedTask.id}`
+          await refreshTaskLists()
+        }
 
       } catch (err) {
         if (err.response || err.request) {
@@ -1288,6 +1685,8 @@ export default {
       document.removeEventListener('keydown', handleKeydown)
       clearTimeout(saveTimeout)
       clearTimeout(pollTimer)
+      releaseListObjectUrls()
+      releaseResultObjectUrls()
       // 确保在组件卸载时恢复背景滚动
       document.body.style.overflow = 'auto'
     })
@@ -1320,7 +1719,10 @@ export default {
       modalImage,
       uploadingIndex,
       availableSizes,
-      taskHistory,
+      historyTasks,
+      favoriteTasks,
+      displayedTasks,
+      historyTab,
       isTaskHistoryCollapsed,
       hasSavedData,
       MAX_TASK_HISTORY_ITEMS,
@@ -1328,6 +1730,15 @@ export default {
       uploadImage,
       applyHistoryPrompt,
       toggleTaskHistory,
+      switchHistoryTab,
+      showTaskInResult,
+      formatTaskTime,
+      getTaskSummary,
+      isTaskFavorited,
+      isTaskSelected,
+      toggleFavoriteTask,
+      removeHistoryTask,
+      downloadImage,
       clearHistoryData,
       generateImages,
       onImageLoad,
