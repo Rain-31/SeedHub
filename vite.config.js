@@ -138,6 +138,55 @@ export default defineConfig({
           }
         })
         
+        // 同源图片代理：用于把远程生成图片抓取为 Blob 缓存到 IndexedDB
+        server.middlewares.use('/api/image-proxy', async (req, res) => {
+          if (req.method !== 'GET') {
+            res.statusCode = 405
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Method not allowed' }))
+            return
+          }
+
+          const requestUrl = new URL(req.url, 'http://localhost')
+          const targetUrl = requestUrl.searchParams.get('url')
+
+          if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+            res.statusCode = 400
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Invalid url' }))
+            return
+          }
+
+          try {
+            const imageResponse = await fetch(targetUrl, { redirect: 'follow' })
+
+            if (!imageResponse.ok) {
+              res.statusCode = imageResponse.status
+              res.end()
+              return
+            }
+
+            const contentType = imageResponse.headers.get('content-type') || 'application/octet-stream'
+            if (!contentType.toLowerCase().startsWith('image/')) {
+              res.statusCode = 415
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: 'Target is not an image' }))
+              return
+            }
+
+            const buffer = Buffer.from(await imageResponse.arrayBuffer())
+            res.setHeader('Content-Type', contentType)
+            res.setHeader('Content-Disposition', 'inline')
+            res.setHeader('Cache-Control', 'public, max-age=3600')
+            res.end(buffer)
+          } catch (error) {
+            console.error('Image proxy error:', error)
+            res.statusCode = 502
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Image proxy failed' }))
+          }
+        })
+
         // 将代理中间件应用到服务器
         server.middlewares.use(proxyMiddleware);
       }
