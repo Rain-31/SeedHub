@@ -984,6 +984,7 @@ export default {
       resetVideoTask()
       currentResultTask.value = task
       selectedTaskKey.value = `${historyTab.value}-${task.id}`
+      form.prompt = task.prompt || ''
 
       if (task.type === 'video') {
         if (task.video && task.video.url) {
