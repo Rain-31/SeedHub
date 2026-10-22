@@ -559,40 +559,53 @@
     <!-- 图片放大模态框 -->
     <div
       v-if="modalImage.show"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm"
-      @click="closeImageModal"
+      class="fixed inset-0 z-50 touch-none overscroll-none bg-black bg-opacity-90 select-none"
+      @click="handleViewerClick"
     >
-      <div class="relative max-w-7xl max-h-full p-4">
-        <!-- 关闭按钮 -->
-        <button
-          @click="closeImageModal"
-          class="absolute top-2 right-2 z-10 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-70 transition-all"
-        >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-          </svg>
-        </button>
-        
-        <!-- 放大的图片 -->
+      <!-- 关闭按钮 -->
+      <button
+        type="button"
+        @click.stop="closeImageModal"
+        class="absolute top-3 right-3 z-20 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-70 transition-all"
+        aria-label="关闭"
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <!-- 缩放容器：手势与页面缩放隔离 -->
+      <div
+        ref="viewerStage"
+        class="absolute inset-0 flex items-center justify-center overflow-hidden touch-none select-none"
+        @pointerdown="onViewerPointerDown"
+        @pointermove="onViewerPointerMove"
+        @pointerup="onViewerPointerUp"
+        @pointercancel="onViewerPointerUp"
+        @wheel.prevent="onViewerWheel"
+      >
         <img
+          ref="viewerImage"
           :src="modalImage.url"
           :alt="modalImage.alt"
           decoding="async"
-          class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          draggable="false"
+          class="max-w-full max-h-full object-contain will-change-transform select-none"
           @click.stop
+          @dragstart.prevent
         />
-        
-        <!-- 图片信息 -->
-        <div class="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-3 py-1 rounded-md text-sm">
-          {{ modalImage.alt }}
-        </div>
+      </div>
+
+      <!-- 图片信息 -->
+      <div class="pointer-events-none absolute bottom-3 left-3 bg-black bg-opacity-50 text-white px-3 py-1 rounded-md text-sm">
+        {{ modalImage.alt }}
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, reactive, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import axios from 'axios'
 import {
   saveFormData,
@@ -729,6 +742,28 @@ export default {
       url: '',
       alt: ''
     })
+    const viewerStage = ref(null)
+    const viewerImage = ref(null)
+    // 手势缩放状态（不放进响应式，直接写 DOM 样式，避免高频手势触发重渲染）
+    const viewer = {
+      scale: 1,
+      x: 0,
+      y: 0,
+      pointers: new Map(),
+      startDist: 0,
+      startScale: 1,
+      startMidX: 0,
+      startMidY: 0,
+      startX: 0,
+      startY: 0,
+      startPanX: 0,
+      startPanY: 0,
+      moved: false,
+      lastTapAt: 0,
+      lastTapX: 0,
+      lastTapY: 0
+    }
+    const MAX_VIEWER_SCALE = 5
 
     const form = reactive({
       apiKey: '',
@@ -1716,6 +1751,10 @@ export default {
       modalImage.alt = alt
       // 防止背景滚动
       document.body.style.overflow = 'hidden'
+      // iOS Safari：模态框内禁止系统级整页缩放手势
+      document.addEventListener('gesturestart', preventPageGesture, { passive: false })
+      document.addEventListener('gesturechange', preventPageGesture, { passive: false })
+      nextTick(() => resetViewer())
     }
 
     const closeImageModal = () => {
@@ -1724,6 +1763,184 @@ export default {
       modalImage.alt = ''
       // 恢复背景滚动
       document.body.style.overflow = 'auto'
+      document.removeEventListener('gesturestart', preventPageGesture)
+      document.removeEventListener('gesturechange', preventPageGesture)
+      resetViewer()
+    }
+
+    const preventPageGesture = (event) => {
+      event.preventDefault()
+    }
+
+    const applyViewerTransform = (animate = false) => {
+      const image = viewerImage.value
+      if (!image) return
+      image.style.transition = animate ? 'transform 0.22s ease-out' : 'none'
+      image.style.transform = `translate3d(${viewer.x}px, ${viewer.y}px, 0) scale(${viewer.scale})`
+    }
+
+    const clampViewer = () => {
+      const stage = viewerStage.value
+      const image = viewerImage.value
+      if (!stage || !image) return
+      const maxX = Math.max(0, (image.offsetWidth * viewer.scale - stage.clientWidth) / 2)
+      const maxY = Math.max(0, (image.offsetHeight * viewer.scale - stage.clientHeight) / 2)
+      viewer.x = Math.min(maxX, Math.max(-maxX, viewer.x))
+      viewer.y = Math.min(maxY, Math.max(-maxY, viewer.y))
+    }
+
+    const resetViewer = () => {
+      viewer.scale = 1
+      viewer.x = 0
+      viewer.y = 0
+      viewer.moved = false
+      viewer.lastTapAt = 0
+      viewer.pointers.clear()
+      applyViewerTransform(false)
+    }
+
+    // 以 stage 中心为原点的坐标，便于计算缩放锚点
+    const getStagePoint = (clientX, clientY) => {
+      const stage = viewerStage.value
+      if (!stage) return { x: 0, y: 0 }
+      const rect = stage.getBoundingClientRect()
+      return {
+        x: clientX - rect.left - rect.width / 2,
+        y: clientY - rect.top - rect.height / 2
+      }
+    }
+
+    const onViewerPointerDown = (event) => {
+      if (!viewerStage.value) return
+      viewer.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+      if (viewer.pointers.size === 1) {
+        viewer.moved = false
+        viewer.startX = event.clientX
+        viewer.startY = event.clientY
+        viewer.startPanX = viewer.x
+        viewer.startPanY = viewer.y
+        const image = viewerImage.value
+        if (image) image.style.transition = 'none'
+      } else if (viewer.pointers.size === 2) {
+        const [a, b] = [...viewer.pointers.values()]
+        viewer.startDist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
+        viewer.startScale = viewer.scale
+        const mid = getStagePoint((a.x + b.x) / 2, (a.y + b.y) / 2)
+        viewer.startMidX = mid.x
+        viewer.startMidY = mid.y
+        viewer.startPanX = viewer.x
+        viewer.startPanY = viewer.y
+        viewer.moved = true
+      }
+    }
+
+    const onViewerPointerMove = (event) => {
+      if (!viewer.pointers.has(event.pointerId)) return
+      viewer.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+      if (viewer.pointers.size === 2) {
+        const [a, b] = [...viewer.pointers.values()]
+        const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
+        const mid = getStagePoint((a.x + b.x) / 2, (a.y + b.y) / 2)
+        const nextScale = Math.min(MAX_VIEWER_SCALE, Math.max(1, viewer.startScale * (dist / viewer.startDist)))
+        const ratio = nextScale / viewer.startScale
+        viewer.scale = nextScale
+        // 保持双指中心点下的画面位置不漂移
+        viewer.x = mid.x - (viewer.startMidX - viewer.startPanX) * ratio
+        viewer.y = mid.y - (viewer.startMidY - viewer.startPanY) * ratio
+        clampViewer()
+        applyViewerTransform(false)
+        return
+      }
+
+      if (viewer.pointers.size === 1 && viewer.scale > 1) {
+        const dx = event.clientX - viewer.startX
+        const dy = event.clientY - viewer.startY
+        if (Math.hypot(dx, dy) > 6) viewer.moved = true
+        viewer.x = viewer.startPanX + dx
+        viewer.y = viewer.startPanY + dy
+        clampViewer()
+        applyViewerTransform(false)
+      }
+    }
+
+    const onViewerPointerUp = (event) => {
+      if (!viewer.pointers.has(event.pointerId)) return
+      const wasSingle = viewer.pointers.size === 1
+      viewer.pointers.delete(event.pointerId)
+
+      if (wasSingle && !viewer.moved) {
+        const now = Date.now()
+        const dx = event.clientX - viewer.lastTapX
+        const dy = event.clientY - viewer.lastTapY
+        if (now - viewer.lastTapAt < 300 && Math.hypot(dx, dy) < 30) {
+          toggleViewerZoom(event)
+          viewer.lastTapAt = 0
+        } else {
+          viewer.lastTapAt = now
+          viewer.lastTapX = event.clientX
+          viewer.lastTapY = event.clientY
+        }
+      }
+
+      if (viewer.pointers.size === 1) {
+        const [pointer] = [...viewer.pointers.values()]
+        viewer.startX = pointer.x
+        viewer.startY = pointer.y
+        viewer.startPanX = viewer.x
+        viewer.startPanY = viewer.y
+      } else if (viewer.pointers.size === 0) {
+        if (viewer.moved) viewer.lastTapAt = 0
+        if (viewer.scale < 1.05) {
+          viewer.scale = 1
+          viewer.x = 0
+          viewer.y = 0
+        }
+        clampViewer()
+        applyViewerTransform(true)
+      }
+    }
+
+    // 双击 / 双指轻点：在 1x 与 2.5x 之间切换
+    const toggleViewerZoom = (event) => {
+      if (viewer.scale > 1) {
+        viewer.scale = 1
+        viewer.x = 0
+        viewer.y = 0
+      } else {
+        const point = getStagePoint(event.clientX, event.clientY)
+        const target = 2.5
+        viewer.scale = target
+        viewer.x = -point.x * (target - 1)
+        viewer.y = -point.y * (target - 1)
+      }
+      clampViewer()
+      applyViewerTransform(true)
+    }
+
+    const onViewerWheel = (event) => {
+      const point = getStagePoint(event.clientX, event.clientY)
+      const nextScale = Math.min(MAX_VIEWER_SCALE, Math.max(1, viewer.scale * Math.exp(-event.deltaY * 0.0015)))
+      const ratio = nextScale / viewer.scale
+      viewer.x = point.x - (point.x - viewer.x) * ratio
+      viewer.y = point.y - (point.y - viewer.y) * ratio
+      viewer.scale = nextScale
+      if (viewer.scale <= 1) {
+        viewer.x = 0
+        viewer.y = 0
+      }
+      clampViewer()
+      applyViewerTransform(false)
+    }
+
+    // 拖拽/缩放后误触点击不关闭
+    const handleViewerClick = () => {
+      if (viewer.moved) {
+        viewer.moved = false
+        return
+      }
+      closeImageModal()
     }
 
     // 键盘事件处理
@@ -1736,6 +1953,8 @@ export default {
     // 组件卸载时移除键盘事件监听
     onUnmounted(() => {
       document.removeEventListener('keydown', handleKeydown)
+      document.removeEventListener('gesturestart', preventPageGesture)
+      document.removeEventListener('gesturechange', preventPageGesture)
       clearTimeout(saveTimeout)
       clearTimeout(pollTimer)
       releaseListObjectUrls()
@@ -1797,7 +2016,14 @@ export default {
       onImageError,
       onTaskThumbnailError,
       openImageModal,
-      closeImageModal
+      closeImageModal,
+      viewerStage,
+      viewerImage,
+      handleViewerClick,
+      onViewerPointerDown,
+      onViewerPointerMove,
+      onViewerPointerUp,
+      onViewerWheel
     }
   }
 }
