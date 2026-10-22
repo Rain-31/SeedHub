@@ -151,6 +151,26 @@ export async function fetchImageBlob(url) {
 }
 
 /**
+ * 通过 Image 元素解码 Blob（部分浏览器不支持 createImageBitmap 时的回退方案）
+ */
+function decodeWithImageElement(blob) {
+  if (typeof Image === 'undefined') {
+    return Promise.resolve(null)
+  }
+
+  const url = URL.createObjectURL(blob)
+
+  return new Promise(resolve => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => resolve(null)
+    image.src = url
+  }).finally(() => {
+    URL.revokeObjectURL(url)
+  })
+}
+
+/**
  * 使用 canvas 生成缩略图，避免历史列表加载大图
  */
 export async function createThumbnailBlob(blob) {
@@ -158,11 +178,31 @@ export async function createThumbnailBlob(blob) {
     return null
   }
 
+  let source = null
+
   try {
-    const bitmap = await createImageBitmap(blob)
-    const scale = Math.min(1, THUMBNAIL_MAX_SIZE / Math.max(bitmap.width, bitmap.height))
-    const width = Math.max(1, Math.round(bitmap.width * scale))
-    const height = Math.max(1, Math.round(bitmap.height * scale))
+    if (typeof createImageBitmap === 'function') {
+      source = await createImageBitmap(blob)
+    }
+  } catch (error) {
+    console.warn('⚠️ createImageBitmap 解码失败，尝试使用 Image 元素:', error)
+  }
+
+  if (!source) {
+    source = await decodeWithImageElement(blob)
+  }
+
+  if (!source) {
+    console.warn('⚠️ 生成缩略图失败: 无法解码图片')
+    return null
+  }
+
+  try {
+    const sourceWidth = source.width || source.naturalWidth
+    const sourceHeight = source.height || source.naturalHeight
+    const scale = Math.min(1, THUMBNAIL_MAX_SIZE / Math.max(sourceWidth, sourceHeight))
+    const width = Math.max(1, Math.round(sourceWidth * scale))
+    const height = Math.max(1, Math.round(sourceHeight * scale))
 
     const canvas = document.createElement('canvas')
     canvas.width = width
@@ -173,9 +213,9 @@ export async function createThumbnailBlob(blob) {
       return null
     }
 
-    context.drawImage(bitmap, 0, 0, width, height)
-    if (typeof bitmap.close === 'function') {
-      bitmap.close()
+    context.drawImage(source, 0, 0, width, height)
+    if (typeof source.close === 'function') {
+      source.close()
     }
 
     return await new Promise(resolve => {
