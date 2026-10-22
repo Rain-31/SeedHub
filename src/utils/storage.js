@@ -1,13 +1,11 @@
 /**
  * localStorage 存储工具函数
- * 用于保存表单数据和最近的 prompt 历史
+ * 用于保存表单数据和未完成的视频任务 ID
+ * 历史任务与生成结果图片统一存储在 IndexedDB（见 historyDb.js）
  */
 
 const FORM_STORAGE_KEY = 'seedhub_form_data'
-const TASK_HISTORY_STORAGE_KEY = 'seedhub_prompt_history'
 const VIDEO_TASK_STORAGE_KEY = 'seedhub_video_task_id'
-
-export const MAX_TASK_HISTORY_ITEMS = 100
 
 function getStorage() {
   if (typeof window === 'undefined') {
@@ -127,66 +125,6 @@ export function clearFormData() {
  */
 export function hasFormData() {
   return getItem(FORM_STORAGE_KEY) !== null
-}
-
-/**
- * 读取最近的 prompt 历史
- * @returns {string[]} prompt 列表
- */
-export function loadTaskHistory() {
-  try {
-    const jsonString = getItem(TASK_HISTORY_STORAGE_KEY)
-    if (!jsonString) {
-      return []
-    }
-
-    const history = JSON.parse(jsonString)
-    return Array.isArray(history) ? history.filter(item => normalizeText(item)) : []
-  } catch (error) {
-    console.error('❌ 读取任务历史失败:', error)
-    return []
-  }
-}
-
-/**
- * 新增一个 prompt 到历史记录，重复 prompt 会前移到顶部
- * @param {string} prompt 提示词
- * @returns {string[]} 最新历史记录
- */
-export function addTaskPrompt(prompt) {
-  try {
-    const normalizedPrompt = normalizeText(prompt)
-    if (!normalizedPrompt) {
-      return loadTaskHistory()
-    }
-
-    const nextHistory = [
-      normalizedPrompt,
-      ...loadTaskHistory().filter(item => item !== normalizedPrompt)
-    ].slice(0, MAX_TASK_HISTORY_ITEMS)
-
-    if (setItem(TASK_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))) {
-      console.log('✅ 任务历史已更新')
-    }
-
-    return nextHistory
-  } catch (error) {
-    console.error('❌ 保存任务历史失败:', error)
-    return loadTaskHistory()
-  }
-}
-
-/**
- * 清空任务历史
- */
-export function clearTaskHistory() {
-  try {
-    if (removeItem(TASK_HISTORY_STORAGE_KEY)) {
-      console.log('✅ 任务历史已清除')
-    }
-  } catch (error) {
-    console.error('❌ 清除任务历史失败:', error)
-  }
 }
 
 export function saveVideoTaskId(taskId) {
