@@ -336,6 +336,7 @@
                       :src="task.thumbnailUrl"
                       alt="任务缩略图"
                       class="h-full w-full object-cover"
+                      @error="onTaskThumbnailError(task)"
                     />
                     <div v-else class="flex h-full w-full items-center justify-center text-gray-400">
                       <svg v-if="task.type === 'video'" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -880,21 +881,39 @@ export default {
       resultObjectUrls = []
     }
 
-    const getTaskThumbnailBlob = (task) => {
+    const getTaskThumbnailUrl = (task) => {
       if (task.type !== 'image' || !Array.isArray(task.images) || task.images.length === 0) {
-        return null
+        return { url: '', fallbackUrl: '' }
       }
 
       const firstImage = task.images[0]
-      return firstImage.thumbnail || firstImage.blob || null
+      const thumbnailBlob = firstImage.thumbnail || firstImage.blob || null
+      const remoteUrl = firstImage.url || ''
+
+      // 缩略图 Blob 写入失败时（如生成结果图片跨域无法转存），直接回退到远程地址展示
+      return {
+        url: thumbnailBlob ? createListObjectUrl(thumbnailBlob) : remoteUrl,
+        fallbackUrl: remoteUrl
+      }
     }
 
     const hydrateListTask = (task) => {
-      const thumbnailBlob = getTaskThumbnailBlob(task)
+      const { url, fallbackUrl } = getTaskThumbnailUrl(task)
       return {
         ...task,
-        thumbnailUrl: thumbnailBlob ? createListObjectUrl(thumbnailBlob) : ''
+        thumbnailUrl: url,
+        thumbnailFallbackUrl: fallbackUrl
       }
+    }
+
+    const onTaskThumbnailError = (task) => {
+      // 缩略图 Blob 损坏/已失效时回退到远程图片，仍失败则显示占位图标
+      if (task.thumbnailFallbackUrl && task.thumbnailUrl !== task.thumbnailFallbackUrl) {
+        task.thumbnailUrl = task.thumbnailFallbackUrl
+        return
+      }
+
+      task.thumbnailUrl = ''
     }
 
     const refreshTaskLists = async () => {
@@ -1743,6 +1762,7 @@ export default {
       generateImages,
       onImageLoad,
       onImageError,
+      onTaskThumbnailError,
       openImageModal,
       closeImageModal
     }
