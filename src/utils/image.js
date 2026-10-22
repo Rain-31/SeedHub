@@ -4,6 +4,7 @@
 
 /**
  * 获取图片二进制内容
+ * 优先直连；直连失败（如 CDN 未开启 CORS）时走同源图片代理
  * @param {string} url
  * @returns {Promise<Blob>}
  */
@@ -12,13 +13,36 @@ export async function fetchImageBlob(url) {
     throw new Error('图片地址为空')
   }
 
+  try {
+    return await requestImageBlob(url)
+  } catch (directError) {
+    if (!/^https?:\/\//i.test(url)) {
+      throw directError
+    }
+
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(url)}`
+    try {
+      return await requestImageBlob(proxyUrl)
+    } catch (proxyError) {
+      throw new Error(`图片获取失败: ${directError.message} / ${proxyError.message}`)
+    }
+  }
+}
+
+async function requestImageBlob(url) {
   const response = await fetch(url, {
     mode: 'cors',
-    credentials: 'omit'
+    // 同源代理请求需要携带站点会话信息；跨域直连时不会发送凭据
+    credentials: 'same-origin'
   })
 
   if (!response.ok) {
     throw new Error(`图片获取失败: ${response.status} ${response.statusText}`)
+  }
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase()
+  if (contentType && !contentType.startsWith('image/')) {
+    throw new Error(`返回内容不是图片: ${contentType}`)
   }
 
   return response.blob()

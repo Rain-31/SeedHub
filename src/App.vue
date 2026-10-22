@@ -442,20 +442,19 @@
                   <span class="text-sm text-gray-600">图片 {{ index + 1 }}</span>
                   <div class="flex items-center gap-3">
                     <button
-                      v-if="image.fromIndexedDb"
                       type="button"
                       @click="saveImageToLocal(image, index)"
                       class="text-primary-600 hover:text-primary-700 text-sm font-medium"
                     >
                       保存到本地
                     </button>
-                    <a
-                      :href="image.url"
-                      target="_blank"
+                    <button
+                      type="button"
+                      @click="openImageModal(image.url, `生成的图片 ${index + 1}`)"
                       class="text-primary-600 hover:text-primary-700 text-sm font-medium"
                     >
                       查看原图
-                    </a>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -606,6 +605,7 @@ import {
 import {
   getHistoryTasks,
   getTaskImages,
+  saveTaskImageBlob,
   saveImageTask,
   saveVideoTask,
   toggleTaskFavorite,
@@ -1284,6 +1284,69 @@ export default {
     }
 
     /**
+     * 用 IndexedDB 记录构建结果图片列表，已缓存的图片使用本地 Blob URL
+     */
+    const buildHistoryImages = (task, records) => {
+      const recordMap = new Map(records.map(record => [record.index, record]))
+      revokeObjectUrls(resultObjectUrls)
+
+      return (task.images || []).map((meta, index) => {
+        const record = recordMap.get(meta.index ?? index)
+
+        if (record && record.blob) {
+          const url = URL.createObjectURL(record.blob)
+          resultObjectUrls.push(url)
+          return {
+            url,
+            blob: record.blob,
+            fromIndexedDb: true,
+            alt: `历史图片 ${index + 1}`
+          }
+        }
+
+        return {
+          url: meta.url,
+          blob: null,
+          fromIndexedDb: false,
+          alt: `历史图片 ${index + 1}`
+        }
+      }).filter(image => image.url)
+    }
+
+    /**
+     * 旧记录或首次缓存失败的记录，在查看时补存原图到 IndexedDB
+     */
+    const backfillTaskImages = async (task, records) => {
+      const cachedIndexes = new Set(records.map(record => record.index))
+      const missingImages = (task.images || []).filter(meta => !cachedIndexes.has(meta.index))
+
+      if (missingImages.length === 0) {
+        return false
+      }
+
+      let changed = false
+
+      for (const meta of missingImages) {
+        try {
+          const blob = await fetchImageBlob(meta.url)
+          const thumbnail = await createThumbnailBlob(blob)
+          await saveTaskImageBlob({
+            taskId: task.id,
+            index: meta.index,
+            blob,
+            thumbnail,
+            mimeType: blob.type
+          })
+          changed = true
+        } catch (error) {
+          console.warn('⚠️ 历史图片补存 IndexedDB 失败:', error)
+        }
+      }
+
+      return changed
+    }
+
+    /**
      * 点击历史任务，在右侧「生成结果」中展示
      */
     const selectHistoryTask = async (task) => {
@@ -1323,32 +1386,31 @@ export default {
           return
         }
 
-        const recordMap = new Map(imageRecords.map(record => [record.index, record]))
-
-        generatedImages.value = (task.images || []).map((meta, index) => {
-          const record = recordMap.get(index)
-
-          if (record && record.blob) {
-            const url = URL.createObjectURL(record.blob)
-            resultObjectUrls.push(url)
-            return {
-              url,
-              blob: record.blob,
-              fromIndexedDb: true,
-              alt: `历史图片 ${index + 1}`
-            }
-          }
-
-          return {
-            url: meta.url,
-            blob: null,
-            fromIndexedDb: false,
-            alt: `历史图片 ${index + 1}`
-          }
-        }).filter(image => image.url)
+        generatedImages.value = buildHistoryImages(task, imageRecords)
 
         if (generatedImages.value.length === 0) {
           error.value = '该历史任务的图片数据不可用'
+          return
+        }
+
+        if (imageRecords.length < (task.images || []).length) {
+          backfillTaskImages(task, imageRecords)
+            .then(async changed => {
+              if (!changed || token !== generationToken || selectedTaskId.value !== task.id) {
+                return
+              }
+
+              const refreshedRecords = await getTaskImages(task.id)
+              if (token !== generationToken || selectedTaskId.value !== task.id) {
+                return
+              }
+
+              generatedImages.value = buildHistoryImages(task, refreshedRecords)
+              await refreshHistoryTasks()
+            })
+            .catch(error => {
+              console.warn('⚠️ 历史图片补存失败:', error)
+            })
         }
       } catch (err) {
         console.error('❌ 加载历史任务失败:', err)
@@ -1408,16 +1470,29 @@ export default {
     }
 
     /**
-     * IndexedDB 中已缓存原图的，直接从 Blob 保存，不再发起网络下载
+     * 已缓存原图的直接从 IndexedDB Blob 保存；
+     * 未缓存的原图通过图片代理取回后再保存，避免跳转远程下载。
      */
-    const saveImageToLocal = (image, index) => {
+    const saveImageToLocal = async (image, index) => {
+      const filename = `seedhub-${Date.now()}-${index + 1}.${getImageExtension(image)}`
+
       if (image.blob) {
-        downloadBlob(image.blob, `seedhub-${Date.now()}-${index + 1}.${getImageExtension(image)}`)
+        downloadBlob(image.blob, filename)
         return
       }
 
-      if (image.url) {
-        window.open(image.url, '_blank')
+      if (!image.url) {
+        return
+      }
+
+      try {
+        const blob = await fetchImageBlob(image.url)
+        image.blob = blob
+        image.fromIndexedDb = false
+        downloadBlob(blob, `seedhub-${Date.now()}-${index + 1}.${getImageExtension(image)}`)
+      } catch (error) {
+        console.error('❌ 保存图片失败:', error)
+        alert('无法获取图片数据，请稍后重试')
       }
     }
 

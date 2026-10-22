@@ -132,6 +132,53 @@ export async function getTaskImages(taskId) {
 }
 
 /**
+ * 把单张图片的 Blob 补存入 IndexedDB（用于旧记录或首次缓存失败的记录）
+ * @param {Object} payload
+ * @param {string} payload.taskId
+ * @param {number} payload.index
+ * @param {Blob} payload.blob
+ * @param {Blob|null} payload.thumbnail
+ * @param {string} payload.mimeType
+ */
+export async function saveTaskImageBlob({ taskId, index, blob, thumbnail, mimeType }) {
+  if (!taskId || !blob) {
+    return
+  }
+
+  const db = await openDb()
+  const readTx = db.transaction(TASK_STORE, 'readonly')
+  const task = await requestToPromise(readTx.objectStore(TASK_STORE).get(taskId))
+
+  if (!task) {
+    return
+  }
+
+  const nextImages = (task.images || []).map(image => {
+    if (image.index !== index) {
+      return image
+    }
+
+    return {
+      ...image,
+      mimeType: mimeType || image.mimeType,
+      thumbnail: thumbnail || image.thumbnail || null
+    }
+  })
+
+  const writeTx = db.transaction([TASK_STORE, IMAGE_STORE], 'readwrite')
+  writeTx.objectStore(TASK_STORE).put({ ...task, images: nextImages })
+  writeTx.objectStore(IMAGE_STORE).put({
+    id: `${taskId}:${index}`,
+    taskId,
+    index,
+    blob,
+    mimeType: mimeType || blob.type || 'image/png'
+  })
+
+  await waitForTransaction(writeTx)
+}
+
+/**
  * 保存图片生成任务
  * @param {Object} payload
  * @param {string} payload.prompt
