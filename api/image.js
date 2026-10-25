@@ -93,10 +93,12 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
     // 临时签名地址本身会变，缓存一天足够，避免重复回源
     res.setHeader('Cache-Control', 'public, max-age=86400')
-    if (declaredLength > 0) {
-      res.setHeader('Content-Length', String(declaredLength))
-    }
     res.statusCode = 200
+
+    // 注意：不要回传上游的 Content-Length。
+    // 图床会对图片做 gzip（content-encoding: gzip），这里的 length 是“压缩后”的长度，
+    // 而 fetch 已经把 body 解压过了。若按压缩长度回传，浏览器会按这个长度截断，
+    // 最终存下来的是半张图（4K 图“打不开/显示不全”就是这个原因）。
 
     // 流式转发：不要在函数里把整张图缓冲完再返回。
     // 4K 图有 1~5MB，等整图下载完再回传会让首字节延迟大幅上升，
