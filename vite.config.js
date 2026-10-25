@@ -138,6 +138,53 @@ export default defineConfig({
           }
         })
         
+        // 图片代理（本地开发与 Vercel 的 /api/image 行为保持一致）
+        // 生成结果地址通常不允许跨域读取，走同源代理才能转存进 IndexedDB
+        server.middlewares.use('/api/image', async (req, res) => {
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            res.statusCode = 405
+            res.end('Method not allowed')
+            return
+          }
+
+          let target = null
+          try {
+            const raw = new URL(req.url, 'http://localhost').searchParams.get('url') || ''
+            target = new URL(raw)
+          } catch (error) {
+            res.statusCode = 400
+            res.end('Invalid url parameter')
+            return
+          }
+
+          if (!/(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-92x\.pages\.dev)$/i.test(target.hostname)) {
+            res.statusCode = 403
+            res.end('Host not allowed')
+            return
+          }
+
+          try {
+            const fetchImpl = typeof fetch === 'function' ? fetch : (await import('node-fetch')).default
+            const upstream = await fetchImpl(target.toString(), { redirect: 'follow' })
+
+            if (!upstream.ok) {
+              res.statusCode = upstream.status
+              res.end(`Upstream responded ${upstream.status}`)
+              return
+            }
+
+            const buffer = Buffer.from(await upstream.arrayBuffer())
+            res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+            res.setHeader('Content-Length', String(buffer.length))
+            res.statusCode = 200
+            res.end(buffer)
+          } catch (error) {
+            console.error('Image proxy error:', error)
+            res.statusCode = 502
+            res.end('Image proxy failed')
+          }
+        })
+
         // 将代理中间件应用到服务器
         server.middlewares.use(proxyMiddleware);
       }

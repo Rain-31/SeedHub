@@ -316,6 +316,23 @@
                 </button>
               </div>
 
+              <!-- 图片数据自检：确认本地图片是否还在 -->
+              <div class="mt-2 flex items-center justify-between gap-2 text-xs text-gray-500">
+                <button
+                  type="button"
+                  @click="checkImageAssets"
+                  :disabled="checkingImages"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-gray-100 hover:text-primary-600 disabled:cursor-wait disabled:opacity-60"
+                  title="检查历史/收藏任务里的图片是否还保存在本地，并修补缺失的缩略图"
+                >
+                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                  </svg>
+                  {{ checkingImages ? '检查中…' : '图片数据自检' }}
+                </button>
+                <span v-if="imageCheckSummary" class="truncate text-amber-600">{{ imageCheckSummary }}</span>
+              </div>
+
               <div v-if="displayedTasks.length > 0" class="mt-2 max-h-96 space-y-2 overflow-y-auto pr-1">
                 <div
                   v-for="task in displayedTasks"
@@ -426,6 +443,24 @@
             </div>
           </div>
 
+          <!-- 本地转存失败提示 -->
+          <div
+            v-if="storageWarning"
+            class="mb-4 flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+          >
+            <svg class="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path>
+            </svg>
+            <p class="flex-1">{{ storageWarning }}</p>
+            <button
+              type="button"
+              class="flex-shrink-0 text-amber-700 underline hover:text-amber-900"
+              @click="storageWarning = ''"
+            >
+              知道了
+            </button>
+          </div>
+
           <!-- 生成的图片 -->
           <div v-if="generatedImages.length > 0" class="space-y-4">
             <div
@@ -434,18 +469,33 @@
               class="border border-gray-200 rounded-lg overflow-hidden"
             >
               <img
+                v-if="image.url"
                 :src="image.url"
                 :alt="`生成的图片 ${index + 1}`"
                 decoding="async"
                 class="w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
                 @load="onImageLoad"
-                @error="onImageError"
+                @error="onResultImageError(image)"
                 @click="openImageModal(image.url, `生成的图片 ${index + 1}`)"
               />
+              <div v-else class="flex flex-col items-center justify-center gap-2 bg-gray-50 px-6 py-16 text-center">
+                <svg class="h-10 w-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <p class="text-sm font-medium text-gray-700">图片数据已丢失</p>
+                <p class="max-w-xs text-xs text-gray-500">
+                  本地缓存已被清理，生成时使用的远程链接也已经过期，无法再恢复这张图片。
+                </p>
+              </div>
               <div class="p-3 bg-gray-50">
                 <div class="flex justify-between items-center gap-3">
                   <span class="text-sm text-gray-600">图片 {{ index + 1 }}</span>
+                  <span
+                    v-if="image.displaySource === 'remote' || image.displaySource === 'proxy'"
+                    class="text-xs text-amber-600"
+                  >仅临时链接 · 约 24 小时后失效</span>
                   <button
+                    v-if="!image.missing"
                     type="button"
                     @click="downloadImage(image, index)"
                     class="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 text-sm font-medium"
@@ -629,7 +679,11 @@ import {
   fetchImageBlob,
   createThumbnailBlob,
   createPreviewBlob,
-  ensurePreviews,
+  ensureTaskAssets,
+  diagnoseTaskAssets,
+  repairAllTaskAssets,
+  requestPersistentStorage,
+  isUsableBlob,
   getImageBlob,
   getImageExtension
 } from './utils/taskDb.js'
@@ -732,6 +786,13 @@ export default {
     const selectedTaskKey = ref('')
     const currentResultTask = ref(null)
     const hasSavedFormData = ref(hasFormData())
+    // 生成结果没能转存到本地时的提示（远程链接会过期）
+    const storageWarning = ref('')
+    // 图片数据自检结果提示
+    const imageCheckSummary = ref('')
+    const checkingImages = ref(false)
+    // 是否拿到持久化存储权限（null 表示尚未检测）
+    const storagePersisted = ref(null)
     
     // 图片上传状态
     const uploadingIndex = ref(-1)
@@ -919,35 +980,47 @@ export default {
       resultObjectUrls = []
     }
 
-    const getTaskThumbnailUrl = (task) => {
+    const getTaskThumbnailSources = (task) => {
       if (task.type !== 'image' || !Array.isArray(task.images) || task.images.length === 0) {
-        return { url: '', fallbackUrl: '' }
+        return []
       }
 
       const firstImage = task.images[0]
-      const thumbnailBlob = firstImage.thumbnail || firstImage.preview || null
-      const remoteUrl = firstImage.url || ''
-
-      // 缩略图 Blob 写入失败时（如生成结果图片跨域无法转存），直接回退到远程地址展示
-      return {
-        url: thumbnailBlob ? createListObjectUrl(thumbnailBlob) : remoteUrl,
-        fallbackUrl: remoteUrl
+      if (!firstImage || typeof firstImage !== 'object') {
+        return []
       }
+
+      // 优先本地 Blob（缩略图 → 预览图 → 内联原图），最后才回退到临时远程地址
+      const urls = [firstImage.thumbnail, firstImage.preview, firstImage.blob]
+        .filter(isUsableBlob)
+        .map(blob => createListObjectUrl(blob))
+
+      // 生成结果地址约 24 小时失效，只作为最后的兜底
+      if (typeof firstImage.url === 'string' && firstImage.url) {
+        urls.push(firstImage.url)
+      }
+
+      return urls
     }
 
     const hydrateListTask = (task) => {
-      const { url, fallbackUrl } = getTaskThumbnailUrl(task)
+      const thumbnailSources = getTaskThumbnailSources(task)
       return {
         ...task,
-        thumbnailUrl: url,
-        thumbnailFallbackUrl: fallbackUrl
+        thumbnailSources,
+        thumbnailSourceIndex: 0,
+        thumbnailUrl: thumbnailSources[0] || ''
       }
     }
 
     const onTaskThumbnailError = (task) => {
-      // 缩略图 Blob 损坏/已失效时回退到远程图片，仍失败则显示占位图标
-      if (task.thumbnailFallbackUrl && task.thumbnailUrl !== task.thumbnailFallbackUrl) {
-        task.thumbnailUrl = task.thumbnailFallbackUrl
+      // 依次尝试 缩略图 → 预览图 → 内联原图 → 远程地址，全部失败则显示占位图标
+      const sources = Array.isArray(task.thumbnailSources) ? task.thumbnailSources : []
+      const nextIndex = (task.thumbnailSourceIndex || 0) + 1
+
+      if (nextIndex < sources.length) {
+        task.thumbnailSourceIndex = nextIndex
+        task.thumbnailUrl = sources[nextIndex]
         return
       }
 
@@ -966,6 +1039,51 @@ export default {
       }
     }
 
+    // 自检并修复历史/收藏任务的图片数据：哪些图片还在本地、哪些只剩已经过期的链接
+    const checkImageAssets = async () => {
+      if (checkingImages.value) {
+        return
+      }
+
+      checkingImages.value = true
+
+      try {
+        const before = await diagnoseTaskAssets()
+        const repair = await repairAllTaskAssets({ redownload: false })
+        const after = await diagnoseTaskAssets()
+        await refreshTaskLists()
+
+        const missingImages = after.tasks.missingOriginal + after.favorites.missingOriginal
+        const lines = [
+          `历史任务：${before.tasks.records} 条，图片 ${before.tasks.images} 张（本地原图 ${before.tasks.original} 张）`,
+          `收藏任务：${before.favorites.records} 条，图片 ${before.favorites.images} 张（本地原图 ${before.favorites.original} 张）`,
+          `本地原图 Blob：${before.blobCount} 个`,
+          `补齐缩略图/预览图：${repair.repaired} 条记录已更新`,
+          `仍缺少本地原图：${missingImages} 张（远程链接过期后无法恢复）`
+        ]
+
+        if (before.usage) {
+          lines.push(`站点存储占用：${formatBytes(before.usage.usage)} / 配额 ${formatBytes(before.usage.quota)}`)
+        }
+
+        if (storagePersisted.value !== null) {
+          lines.push(`持久化存储：${storagePersisted.value ? '已授权' : '未授权（浏览器可能在空间不足时清理图片）'}`)
+        }
+
+        imageCheckSummary.value = missingImages > 0
+          ? `缺少本地原图 ${missingImages} 张`
+          : '图片数据完整'
+
+        window.alert(lines.join('\n'))
+        console.table({ 历史任务: before.tasks, 收藏任务: before.favorites })
+      } catch (err) {
+        console.error('❌ 图片数据自检失败:', err)
+        window.alert(`图片数据自检失败：${err && err.message ? err.message : err}`)
+      } finally {
+        checkingImages.value = false
+      }
+    }
+
     const formatTaskTime = (timestamp) => {
       if (!timestamp) {
         return ''
@@ -980,6 +1098,17 @@ export default {
       const date = new Date(timestamp || Date.now())
       const pad = value => String(value).padStart(2, '0')
       return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+    }
+
+    const formatBytes = (bytes) => {
+      if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '0 B'
+      }
+
+      const units = ['B', 'KB', 'MB', 'GB']
+      const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+      const value = bytes / Math.pow(1024, index)
+      return `${value >= 100 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`
     }
 
     const getTaskSummary = (task) => {
@@ -1005,17 +1134,75 @@ export default {
       }
 
       return task.images.map(image => {
-        // 结果区与弹窗优先使用屏幕尺寸预览图，原图仅用于下载
-        const displayBlob = image.preview || image.blob || null
+        if (!image || typeof image !== 'object') {
+          return {
+            url: '',
+            displaySource: '',
+            proxyTried: false,
+            remoteUrl: '',
+            blobKey: '',
+            blob: null,
+            missing: true,
+            revised_prompt: ''
+          }
+        }
+
+        // 结果区与弹窗优先使用屏幕尺寸预览图，原图仅用于下载与兜底
+        const previewBlob = isUsableBlob(image.preview) ? image.preview : null
+        const originalBlob = isUsableBlob(image.blob) ? image.blob : null
+        const displayBlob = previewBlob || originalBlob
+        const remoteUrl = image.url || ''
 
         return {
-          url: displayBlob ? createResultObjectUrl(displayBlob) : (image.url || ''),
-          remoteUrl: image.url || '',
+          url: displayBlob ? createResultObjectUrl(displayBlob) : remoteUrl,
+          displaySource: previewBlob ? 'preview' : (originalBlob ? 'original' : (remoteUrl ? 'remote' : '')),
+          proxyTried: false,
+          remoteUrl,
           blobKey: image.blobKey || '',
-          blob: image.blob || null,
+          blob: originalBlob,
+          missing: !displayBlob && !remoteUrl,
           revised_prompt: image.revised_prompt
         }
       })
+    }
+
+    // 结果区图片加载失败时逐级降级：预览图 → 原图 → 远程地址 → 同源代理
+    const onResultImageError = async (image) => {
+      if (!image) {
+        return
+      }
+
+      if (image.displaySource === 'preview' && image.blobKey) {
+        const blob = await getImageBlob(image.blobKey)
+        if (isUsableBlob(blob)) {
+          image.url = createResultObjectUrl(blob)
+          image.displaySource = 'original'
+          return
+        }
+      }
+
+      if (image.displaySource === 'preview' && isUsableBlob(image.blob)) {
+        image.url = createResultObjectUrl(image.blob)
+        image.displaySource = 'original'
+        return
+      }
+
+      if (image.displaySource !== 'remote' && image.displaySource !== 'proxy' && image.remoteUrl) {
+        image.url = image.remoteUrl
+        image.displaySource = 'remote'
+        return
+      }
+
+      if (!image.proxyTried && image.remoteUrl) {
+        image.proxyTried = true
+        image.displaySource = 'proxy'
+        image.url = `/api/image?url=${encodeURIComponent(image.remoteUrl)}`
+        return
+      }
+
+      image.displaySource = ''
+      image.missing = true
+      image.url = ''
     }
 
     const showTaskInResult = async (task) => {
@@ -1045,28 +1232,37 @@ export default {
       }
 
       let resultTask = task
-      const needsPreview = Array.isArray(task.images)
-        && task.images.some(image => image && !image.preview && image.blobKey)
+      const needsRepair = Array.isArray(task.images) && task.images.some(image => image && (
+        !isUsableBlob(image.thumbnail) ||
+        !isUsableBlob(image.preview) ||
+        (!image.blobKey && !isUsableBlob(image.blob) && image.url && !image.remoteGone)
+      ))
 
-      // 旧数据没有预览图时，按需补生成后刷新结果
-      if (needsPreview) {
+      // 先用现有数据展示，避免修复期间结果区空白
+      generatedImages.value = buildResultImages(resultTask)
+
+      // 旧数据缺少缩略图/预览图、或本地原图已丢失时，后台修复后刷新展示
+      if (needsRepair) {
         try {
           const tableName = historyTab.value === 'favorites' ? 'favorites' : 'tasks'
-          const hydrated = await ensurePreviews(tableName, task.id)
-          if (hydrated) {
-            resultTask = hydrated
+          const { record } = await ensureTaskAssets(tableName, task.id)
+
+          // 等待期间可能已经切换到别的任务
+          if (currentResultTask.value !== task) {
+            return
           }
+
+          if (record) {
+            resultTask = record
+            generatedImages.value = buildResultImages(resultTask)
+          }
+
+          // 顺带刷新列表，让缩略图一起恢复
+          await refreshTaskLists()
         } catch (err) {
-          console.error('❌ 生成任务预览图失败:', err)
+          console.error('❌ 修复任务图片资源失败:', err)
         }
       }
-
-      // 等待期间可能已经切换到别的任务
-      if (currentResultTask.value !== task) {
-        return
-      }
-
-      generatedImages.value = buildResultImages(resultTask)
     }
 
     const switchHistoryTab = (tab) => {
@@ -1081,7 +1277,23 @@ export default {
         if (existingFavorite) {
           await removeFavoriteTask(existingFavorite.id)
         } else {
+          const images = Array.isArray(task.images) ? task.images : []
+          const imagesWithoutLocal = images.filter(image => image && !image.blobKey && !isUsableBlob(image.blob))
+
+          if (imagesWithoutLocal.length > 0) {
+            const proceed = confirm(
+              `这条任务有 ${imagesWithoutLocal.length} 张图片没有保存到本地，收藏后只能显示临时远程链接（约 24 小时后失效）。\n\n仍要收藏吗？`
+            )
+            if (!proceed) {
+              return
+            }
+          }
+
           await addFavoriteTask(task)
+
+          if (imagesWithoutLocal.length > 0) {
+            storageWarning.value = `已收藏，但其中 ${imagesWithoutLocal.length} 张图片只有临时远程链接，过期后将无法显示，请尽快下载原图。`
+          }
         }
 
         await refreshTaskLists()
@@ -1160,6 +1372,7 @@ export default {
       generatedVideo.value = null
       currentResultTask.value = null
       selectedTaskKey.value = ''
+      storageWarning.value = ''
       resetVideoTask()
     }
 
@@ -1472,6 +1685,16 @@ export default {
     onMounted(async () => {
       // 添加键盘事件监听
       document.addEventListener('keydown', handleKeydown)
+
+      // 申请持久化存储，降低浏览器清理 IndexedDB（历史/收藏图片）的概率
+      requestPersistentStorage()
+        .then(({ supported, persisted }) => {
+          if (supported) {
+            storagePersisted.value = persisted
+          }
+        })
+        .catch(err => console.warn('⚠️ 持久化存储检测失败:', err))
+
       await refreshTaskLists()
 
       const savedData = loadFormData()
@@ -1717,8 +1940,22 @@ export default {
             url: item.url,
             remoteUrl: item.url,
             blob: null,
+            displaySource: 'remote',
+            proxyTried: false,
+            blobKey: '',
+            missing: false,
             revised_prompt: item.revised_prompt
           }))
+
+        if (savedTask && Array.isArray(savedTask.images)) {
+          const notStored = savedTask.images.filter(image => !image || !image.blobKey).length
+
+          if (notStored > 0) {
+            storageWarning.value = `有 ${notStored} 张图片没能保存到本地（可能被跨域限制或存储空间不足阻止）。远程链接约 24 小时后失效，请尽快点击「下载原图」保存。`
+          } else {
+            storageWarning.value = ''
+          }
+        }
 
         if (savedTask) {
           selectedTaskKey.value = `history-${savedTask.id}`
@@ -1998,6 +2235,10 @@ export default {
       isTaskHistoryCollapsed,
       hasSavedData,
       MAX_TASK_HISTORY_ITEMS,
+      storageWarning,
+      imageCheckSummary,
+      checkingImages,
+      checkImageAssets,
       addImageUrl,
       uploadImage,
       toggleTaskHistory,
@@ -2014,6 +2255,7 @@ export default {
       generateImages,
       onImageLoad,
       onImageError,
+      onResultImageError,
       onTaskThumbnailError,
       openImageModal,
       closeImageModal,
