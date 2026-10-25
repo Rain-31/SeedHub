@@ -158,6 +158,45 @@ export async function getStorageUsage() {
 }
 
 /**
+ * 把 Vue 的响应式代理（Proxy）递归还原成普通对象/数组
+ *
+ * IndexedDB 的结构化克隆不接受 Proxy，直接写入会抛
+ * `DataCloneError: could not be cloned`，表现为点击收藏时提示“更新收藏失败”。
+ * Blob / Date / ArrayBuffer 等特殊对象原样保留。
+ */
+function toPlainValue(value) {
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  if (typeof Blob !== 'undefined' && value instanceof Blob) {
+    return value
+  }
+
+  if (value instanceof Date) {
+    return value
+  }
+
+  if (typeof ArrayBuffer !== 'undefined' && (value instanceof ArrayBuffer || ArrayBuffer.isView(value))) {
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(toPlainValue)
+  }
+
+  const plain = {}
+  for (const key of Object.keys(value)) {
+    const plainValue = toPlainValue(value[key])
+    if (plainValue !== undefined) {
+      plain[key] = plainValue
+    }
+  }
+
+  return plain
+}
+
+/**
  * 将 images 中的原图 Blob 移到 imageBlobs 表，返回可直接持久化的图片元数据
  */
 async function externalizeImageBlobs(images) {
@@ -197,9 +236,10 @@ async function pruneTasks() {
 
 async function addTask(record) {
   const images = await externalizeImageBlobs(record.images)
-  const id = await db.tasks.add({ ...record, ...(images ? { images } : {}) })
+  const plainRecord = toPlainValue({ ...record, ...(images ? { images } : {}) })
+  const id = await db.tasks.add(plainRecord)
   await pruneTasks()
-  return { ...record, ...(images ? { images } : {}), id }
+  return { ...plainRecord, id }
 }
 
 /**
@@ -282,8 +322,8 @@ export async function addFavoriteTask(task) {
     }
   }
 
-  // 删除任务自身的主键与临时展示地址，并转为普通对象，避免 Vue 响应式代理导致结构化克隆失败
-  const { id, thumbnailUrl, images, video, ...rest } = task
+  // 删除任务自身的主键、仅用于页面展示的临时字段（Vue 响应式代理不可结构化克隆）
+  const { id, thumbnailUrl, thumbnailSources, thumbnailSourceIndex, images, video, ...rest } = task
   const snapshot = {
     ...rest,
     ...(Array.isArray(images)
@@ -297,7 +337,8 @@ export async function addFavoriteTask(task) {
             preview: image.preview,
             mimeType: image.mimeType,
             missing: image.missing,
-            remoteGone: image.remoteGone
+            remoteGone: image.remoteGone,
+            remoteFailCount: image.remoteFailCount
           }))
         }
       : {}),
@@ -307,12 +348,12 @@ export async function addFavoriteTask(task) {
   const storedImages = await externalizeImageBlobs(snapshot.images)
   const { images: _ignored, ...snapshotRest } = snapshot
 
-  return db.favorites.add({
+  return db.favorites.add(toPlainValue({
     ...snapshotRest,
     ...(storedImages ? { images: storedImages } : {}),
     sourceTaskId,
     favoritedAt: Date.now()
-  })
+  }))
 }
 
 export async function removeFavoriteTask(id) {
