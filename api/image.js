@@ -17,6 +17,9 @@ const ALLOWED_HOST_PATTERNS = [
 
 const MAX_IMAGE_BYTES = 40 * 1024 * 1024
 
+// 大图（4K 常见 2~5MB）在慢网络下回传需要更长时间，别让函数提前被掐断
+export const config = { maxDuration: 60 }
+
 function isAllowedUrl(target) {
   if (!target) {
     return false
@@ -87,23 +90,36 @@ export default async function handler(req, res) {
       return
     }
 
-    const buffer = Buffer.from(await upstream.arrayBuffer())
-    if (buffer.length === 0) {
-      res.status(502).json({ error: 'Empty image response' })
-      return
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    // 临时签名地址本身会变，缓存一天足够，避免重复回源
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    if (declaredLength > 0) {
+      res.setHeader('Content-Length', String(declaredLength))
     }
-    if (buffer.length > MAX_IMAGE_BYTES) {
-      res.status(413).json({ error: 'Image too large' })
+    res.statusCode = 200
+
+    // 流式转发：不要在函数里把整张图缓冲完再返回。
+    // 4K 图有 1~5MB，等整图下载完再回传会让首字节延迟大幅上升，
+    // 慢网络下前端会先超时（之前 4K“保存失败”就是这么来的）。
+    if (!upstream.body) {
+      const buffer = Buffer.from(await upstream.arrayBuffer())
+      res.end(buffer)
       return
     }
 
-    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
-    res.setHeader('Content-Length', String(buffer.length))
-    // 临时签名地址本身会变，缓存一天足够，避免重复回源
-    res.setHeader('Cache-Control', 'public, max-age=86400')
-    res.status(200).send(buffer)
+    const { Readable } = await import('node:stream')
+    const stream = Readable.fromWeb(upstream.body)
+    stream.on('error', error => {
+      console.error('Image proxy stream error:', error)
+      res.destroy(error)
+    })
+    stream.pipe(res)
   } catch (error) {
     console.error('Image proxy error:', error)
+    if (res.headersSent) {
+      res.destroy(error)
+      return
+    }
     res.status(502).json({ error: 'Image proxy failed', message: error.message })
   }
 }

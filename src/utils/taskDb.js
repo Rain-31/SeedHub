@@ -13,7 +13,11 @@ const THUMBNAIL_MAX_SIZE = 320
 const PREVIEW_MAX_SIZE = 1600
 // 图片代理（同源）路径，用于绕开未配置 CORS 的临时图片地址
 const IMAGE_PROXY_PATH = '/api/image'
-const IMAGE_FETCH_TIMEOUT = 20000
+// 直连只是试探 CORS，失败会很快返回，不需要等太久
+const DIRECT_FETCH_TIMEOUT = 15000
+// 走代理是一次真实的整图下载：2K/4K 图片在慢网络下可能要一两分钟，
+// 超时设短了会把本来能成功的大图直接掐断（表现为“图片没保存到本地”）
+const PROXY_FETCH_TIMEOUT = 180000
 // 已知不返回 CORS 响应头的图床（火山 TOS / BytePlus 等）：直连 fetch 必然被浏览器拦，
 // 只会让控制台报一堆红字，所以直接走同源代理
 const NO_CORS_HOST_PATTERN = /(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-92x\.pages\.dev)$/i
@@ -365,9 +369,9 @@ export async function removeFavoriteTask(id) {
  * 读取一次远程图片并校验响应
  * @returns {Promise<{blob: Blob|null, status: number|null, permanent: boolean, error: string}>}
  */
-async function fetchBlobFrom(sourceUrl) {
+async function fetchBlobFrom(sourceUrl, timeout = DIRECT_FETCH_TIMEOUT) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT)
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   try {
     const response = await fetch(sourceUrl, { mode: 'cors', signal: controller.signal })
@@ -394,8 +398,14 @@ async function fetchBlobFrom(sourceUrl) {
 
     return { blob, status: response.status, permanent: false, error: '' }
   } catch (error) {
-    // 跨域被拦（TypeError: Failed to fetch）、超时都算临时/可重试
-    return { blob: null, status: null, permanent: false, error: String(error && error.message ? error.message : error) }
+    const message = String(error && error.message ? error.message : error)
+    const aborted = message.includes('abort') || (error && error.name === 'AbortError')
+    return {
+      blob: null,
+      status: null,
+      permanent: false,
+      error: aborted ? `下载超时（${Math.round(timeout / 1000)} 秒）` : message
+    }
   } finally {
     clearTimeout(timeoutId)
   }
@@ -427,7 +437,7 @@ export async function fetchImageBlobDetailed(url) {
   }
 
   if (!shouldSkipDirectFetch(url)) {
-    const direct = await fetchBlobFrom(url)
+    const direct = await fetchBlobFrom(url, DIRECT_FETCH_TIMEOUT)
     if (direct.blob) {
       return direct
     }
@@ -440,7 +450,8 @@ export async function fetchImageBlobDetailed(url) {
   }
 
   if (typeof window !== 'undefined' && url.startsWith('http')) {
-    const proxied = await fetchBlobFrom(`${IMAGE_PROXY_PATH}?url=${encodeURIComponent(url)}`)
+    // 大图下载可能很慢，这里给足时间，避免把能成功的 4K 图掐断
+    const proxied = await fetchBlobFrom(`${IMAGE_PROXY_PATH}?url=${encodeURIComponent(url)}`, PROXY_FETCH_TIMEOUT)
     if (proxied.blob) {
       console.info('✅ 图片已通过同源代理取回:', `${Math.round(proxied.blob.size / 1024)} KB`, url)
       return proxied

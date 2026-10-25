@@ -677,6 +677,7 @@ import {
   addFavoriteTask,
   removeFavoriteTask,
   fetchImageBlob,
+  fetchImageBlobDetailed,
   createThumbnailBlob,
   createPreviewBlob,
   ensureTaskAssets,
@@ -954,6 +955,8 @@ export default {
     // 防抖定时器
     let saveTimeout = null
     let pollTimer = null
+    // 结果区“当前视图”的版本号：转存大图是异步的，切走任务后不能再覆盖界面
+    let viewToken = 0
     // 列表缩略图与结果大图各自维护 Blob URL，避免频繁生成造成内存泄漏
     let listObjectUrls = []
     let resultObjectUrls = []
@@ -1232,6 +1235,7 @@ export default {
         return
       }
 
+      viewToken += 1
       releaseResultObjectUrls()
       error.value = ''
       generatedImages.value = []
@@ -1388,6 +1392,7 @@ export default {
     }
 
     const resetGenerationState = () => {
+      viewToken += 1
       releaseResultObjectUrls()
       error.value = ''
       generatedImages.value = []
@@ -1641,7 +1646,10 @@ export default {
     // 将生成结果图片转存为原图、缩略图与预览图后写入 IndexedDB
     const persistImageTask = async (apiImages, prompt) => {
       const images = await Promise.all(apiImages.map(async item => {
-        const blob = item.url ? await fetchImageBlob(item.url) : null
+        const downloaded = item.url
+          ? await fetchImageBlobDetailed(item.url)
+          : { blob: null, error: '结果里没有图片地址' }
+        const blob = downloaded.blob
         const thumbnail = blob ? await createThumbnailBlob(blob) : null
         const preview = blob ? await createPreviewBlob(blob) : null
 
@@ -1651,7 +1659,8 @@ export default {
           blob,
           thumbnail,
           preview,
-          mimeType: blob ? blob.type : ''
+          mimeType: blob ? blob.type : '',
+          saveError: blob ? '' : (downloaded.error || '未知原因')
         }
       }))
 
@@ -1947,6 +1956,21 @@ export default {
         }
 
         const apiImages = response.data.data
+        const token = ++viewToken
+
+        // 先把结果显示出来（远程地址），转存大图可能要几十秒，不能一直卡着“生成中”
+        generatedImages.value = apiImages.map(item => ({
+          url: item.url,
+          remoteUrl: item.url,
+          blob: null,
+          displaySource: 'remote',
+          proxyTried: false,
+          blobKey: '',
+          missing: false,
+          revised_prompt: item.revised_prompt
+        }))
+        loading.value = false
+
         let savedTask = null
 
         try {
@@ -1955,31 +1979,30 @@ export default {
           console.error('❌ 保存生成结果到 IndexedDB 失败:', saveError)
         }
 
+        // 等待转存期间用户可能已经切换到别的任务，别再覆盖当前结果
+        if (token !== viewToken) {
+          if (savedTask) {
+            await refreshTaskLists()
+          }
+          return
+        }
+
         currentResultTask.value = savedTask
-        generatedImages.value = savedTask
-          ? buildResultImages(savedTask)
-          : apiImages.map(item => ({
-            url: item.url,
-            remoteUrl: item.url,
-            blob: null,
-            displaySource: 'remote',
-            proxyTried: false,
-            blobKey: '',
-            missing: false,
-            revised_prompt: item.revised_prompt
-          }))
 
-        if (savedTask && Array.isArray(savedTask.images)) {
-          const notStored = savedTask.images.filter(image => !image || !image.blobKey).length
+        if (savedTask) {
+          generatedImages.value = buildResultImages(savedTask)
 
-          if (notStored > 0) {
-            storageWarning.value = `有 ${notStored} 张图片没能保存到本地（可能被跨域限制或存储空间不足阻止）。远程链接约 24 小时后失效，请尽快点击「下载原图」保存。`
+          const notStored = Array.isArray(savedTask.images)
+            ? savedTask.images.filter(image => !image || !image.blobKey)
+            : []
+
+          if (notStored.length > 0) {
+            const reason = notStored[0].saveError ? `（${notStored[0].saveError}）` : ''
+            storageWarning.value = `有 ${notStored.length} 张图片没能保存到本地${reason}。远程链接约 24 小时后失效，请尽快点击「下载原图」保存。`
           } else {
             storageWarning.value = ''
           }
-        }
 
-        if (savedTask) {
           selectedTaskKey.value = `history-${savedTask.id}`
           await refreshTaskLists()
         }
