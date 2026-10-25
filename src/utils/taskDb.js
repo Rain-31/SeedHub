@@ -568,6 +568,44 @@ export function createPreviewBlob(blob) {
 }
 
 /**
+ * 粗测图片是否被截断（JPEG 结尾 FFD9、PNG 结尾 IEND）
+ * 只读首尾几个字节，开销可以忽略；类型缺失时用魔数判断
+ */
+async function isTruncatedImage(blob, hintType = '') {
+  if (!isUsableBlob(blob) || typeof blob.slice !== 'function' || blob.size < 64) {
+    return false
+  }
+
+  try {
+    let type = (blob.type || hintType || '').toLowerCase()
+
+    if (!type) {
+      const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
+      if (head[0] === 0xff && head[1] === 0xd8) {
+        type = 'image/jpeg'
+      } else if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) {
+        type = 'image/png'
+      }
+    }
+
+    if (type.includes('jpeg') || type.includes('jpg')) {
+      const tail = new Uint8Array(await blob.slice(-2).arrayBuffer())
+      return !(tail.length === 2 && tail[0] === 0xff && tail[1] === 0xd9)
+    }
+
+    if (type.includes('png')) {
+      const tail = new Uint8Array(await blob.slice(-8).arrayBuffer())
+      const iend = [0x49, 0x45, 0x4e, 0x44]
+      return !(tail.length === 8 && iend.every((byte, index) => tail[index] === byte))
+    }
+  } catch (error) {
+    return false
+  }
+
+  return false
+}
+
+/**
  * 修复单条历史任务 / 收藏任务的图片资源
  *
  * 处理四类问题：
@@ -628,6 +666,22 @@ export async function ensureTaskAssets(tableName, taskId, options = {}) {
     // 原图彻底丢失时，尝试从还没过期的远程链接救回来
     // remoteGone 兼容旧数据；remoteFailCount 用于区分“链接真过期”和“临时网络/代理故障”
     const remoteFailCount = Number(image.remoteFailCount || 0)
+
+    // 之前代理截断过一个短时间窗，存下来的可能是“半张图”：打开时检测并重新下载
+    if (original && redownload && image.url && !image.remoteGone && remoteFailCount < 2) {
+      if (await isTruncatedImage(original, image.mimeType)) {
+        console.warn('⚠️ 检测到本地图片不完整，准备重新下载:', image.url)
+        if (image.blobKey) {
+          delete image.blobKey
+        }
+        // 旧缩略图/预览图是用“半张图”生成的，一并作废
+        delete image.thumbnail
+        delete image.preview
+        original = null
+        changed = true
+      }
+    }
+
     if (!original && redownload && image.url && !image.remoteGone && remoteFailCount < 2) {
       const downloaded = await fetchImageBlobDetailed(image.url)
       if (downloaded.blob) {

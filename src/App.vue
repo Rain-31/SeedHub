@@ -957,6 +957,8 @@ export default {
     let pollTimer = null
     // 结果区“当前视图”的版本号：转存大图是异步的，切走任务后不能再覆盖界面
     let viewToken = 0
+    // 本次会话已校验过完整性的任务（防止历史上存下被截断的图片）
+    const verifiedTasks = new Set()
     // 列表缩略图与结果大图各自维护 Blob URL，避免频繁生成造成内存泄漏
     let listObjectUrls = []
     let resultObjectUrls = []
@@ -1264,14 +1266,19 @@ export default {
         (!image.blobKey && !isUsableBlob(image.blob) && image.url && !image.remoteGone)
       ))
 
+      // 每个任务每个会话至少校验一次本地图片是否完整（防止历史上存下过被截断的图）
+      const verifyKey = `${historyTab.value}-${task.id}`
+      const shouldVerify = Array.isArray(task.images) && task.images.length > 0 && !verifiedTasks.has(verifyKey)
+
       // 先用现有数据展示，避免修复期间结果区空白
       generatedImages.value = buildResultImages(resultTask)
 
       // 旧数据缺少缩略图/预览图、或本地原图已丢失时，后台修复后刷新展示
-      if (needsRepair) {
+      if (needsRepair || shouldVerify) {
         try {
           const tableName = historyTab.value === 'favorites' ? 'favorites' : 'tasks'
           const { record } = await ensureTaskAssets(tableName, task.id)
+          verifiedTasks.add(verifyKey)
 
           // 等待期间可能已经切换到别的任务
           if (currentResultTask.value !== task) {
