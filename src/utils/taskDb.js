@@ -14,6 +14,17 @@ const PREVIEW_MAX_SIZE = 1600
 // 图片代理（同源）路径，用于绕开未配置 CORS 的临时图片地址
 const IMAGE_PROXY_PATH = '/api/image'
 const IMAGE_FETCH_TIMEOUT = 20000
+// 已知不返回 CORS 响应头的图床（火山 TOS / BytePlus 等）：直连 fetch 必然被浏览器拦，
+// 只会让控制台报一堆红字，所以直接走同源代理
+const NO_CORS_HOST_PATTERN = /(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-92x\.pages\.dev)$/i
+
+function shouldSkipDirectFetch(url) {
+  try {
+    return NO_CORS_HOST_PATTERN.test(new URL(url).hostname)
+  } catch (error) {
+    return false
+  }
+}
 
 const db = new Dexie('SeedHubTaskDB')
 
@@ -310,7 +321,8 @@ export async function removeFavoriteTask(id) {
 }
 
 /**
- * 读取一次远程图片并校验响应，失败返回 null
+ * 读取一次远程图片并校验响应
+ * @returns {Promise<{blob: Blob|null, status: number|null, permanent: boolean, error: string}>}
  */
 async function fetchBlobFrom(sourceUrl) {
   const controller = new AbortController()
@@ -318,20 +330,31 @@ async function fetchBlobFrom(sourceUrl) {
 
   try {
     const response = await fetch(sourceUrl, { mode: 'cors', signal: controller.signal })
+
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      return {
+        blob: null,
+        status: response.status,
+        // 4xx 基本是链接失效或代理拒绝，重试也没用；5xx/超时属于临时故障
+        permanent: response.status >= 400 && response.status < 500,
+        error: `HTTP ${response.status}`
+      }
     }
 
     const contentType = (response.headers.get('content-type') || '').toLowerCase()
     if (/^(text\/|application\/(json|xml))/.test(contentType)) {
-      throw new Error(`返回内容不是图片: ${contentType}`)
+      return { blob: null, status: response.status, permanent: true, error: `返回内容不是图片: ${contentType}` }
     }
 
     const blob = await response.blob()
-    return isUsableBlob(blob) ? blob : null
+    if (!isUsableBlob(blob)) {
+      return { blob: null, status: response.status, permanent: true, error: '响应内容为空' }
+    }
+
+    return { blob, status: response.status, permanent: false, error: '' }
   } catch (error) {
-    console.warn('⚠️ 读取远程图片失败:', sourceUrl, error)
-    return null
+    // 跨域被拦（TypeError: Failed to fetch）、超时都算临时/可重试
+    return { blob: null, status: null, permanent: false, error: String(error && error.message ? error.message : error) }
   } finally {
     clearTimeout(timeoutId)
   }
@@ -340,29 +363,53 @@ async function fetchBlobFrom(sourceUrl) {
 /**
  * 从远程地址读取图片并转为 Blob，失败时返回 null
  *
- * 先直连（浏览器 <img> 能显示不代表 fetch 能跨域读取，很多图床不返回 CORS 头），
- * 直连失败再走同源代理 /api/image，保证生成结果能真正落到本地 IndexedDB。
- * 这一步失败的话，任务里只剩一个约 24 小时后就失效的临时链接。
+ * 火山 TOS 的预签名地址不返回 CORS 头，浏览器直连 fetch 必然失败。
+ * 这类域名直接走同源代理 /api/image（服务端取图不受 CORS 限制），
+ * 避免控制台里一堆“CORS blocked”的红字；其他域名仍然先尝试直连。
  */
 export async function fetchImageBlob(url) {
   if (!url) {
     return null
   }
 
-  const direct = await fetchBlobFrom(url)
-  if (direct) {
-    return direct
+  const detailed = await fetchImageBlobDetailed(url)
+  return detailed.blob
+}
+
+/**
+ * 带诊断信息的取图：记录失败原因，便于判断远程链接是不是真的过期了
+ * @returns {Promise<{blob: Blob|null, permanent: boolean, error: string}>}
+ */
+export async function fetchImageBlobDetailed(url) {
+  if (!url) {
+    return { blob: null, permanent: false, error: '缺少地址' }
+  }
+
+  if (!shouldSkipDirectFetch(url)) {
+    const direct = await fetchBlobFrom(url)
+    if (direct.blob) {
+      return direct
+    }
+
+    // 只有直连是“确定性失败”时才认定为链接失效；CORS/网络问题继续尝试代理
+    if (direct.permanent) {
+      console.warn('⚠️ 远程图片已不可用:', url, direct.error)
+      return { blob: null, permanent: true, error: direct.error }
+    }
   }
 
   if (typeof window !== 'undefined' && url.startsWith('http')) {
     const proxied = await fetchBlobFrom(`${IMAGE_PROXY_PATH}?url=${encodeURIComponent(url)}`)
-    if (proxied) {
+    if (proxied.blob) {
+      console.info('✅ 图片已通过同源代理取回:', `${Math.round(proxied.blob.size / 1024)} KB`, url)
       return proxied
     }
+
+    console.warn('⚠️ 同源代理取图失败:', proxied.error, url)
+    return { blob: null, permanent: proxied.permanent, error: proxied.error }
   }
 
-  console.warn('⚠️ 图片转存 IndexedDB 失败，将只保留临时远程地址:', url)
-  return null
+  return { blob: null, permanent: false, error: '无法取回图片' }
 }
 
 /**
@@ -527,20 +574,26 @@ export async function ensureTaskAssets(tableName, taskId, options = {}) {
     }
 
     // 原图彻底丢失时，尝试从还没过期的远程链接救回来
-    if (!original && redownload && image.url && !image.remoteGone) {
-      const downloaded = await fetchImageBlob(image.url)
-      if (downloaded) {
+    // remoteGone 兼容旧数据；remoteFailCount 用于区分“链接真过期”和“临时网络/代理故障”
+    const remoteFailCount = Number(image.remoteFailCount || 0)
+    if (!original && redownload && image.url && !image.remoteGone && remoteFailCount < 2) {
+      const downloaded = await fetchImageBlobDetailed(image.url)
+      if (downloaded.blob) {
         const blobKey = createBlobKey()
-        await db.imageBlobs.put({ blobKey, blob: downloaded })
+        await db.imageBlobs.put({ blobKey, blob: downloaded.blob })
         image.blobKey = blobKey
-        image.mimeType = downloaded.type || image.mimeType || ''
-        original = downloaded
+        image.mimeType = downloaded.blob.type || image.mimeType || ''
+        original = downloaded.blob
         recovered += 1
         changed = true
         delete image.remoteGone
+        delete image.remoteFailCount
       } else {
-        // 记录“远程也取不到”，避免每次打开都重复请求一个已过期的链接
-        image.remoteGone = true
+        // 记录失败次数，避免每次打开都重复请求一个已经过期的链接
+        image.remoteFailCount = remoteFailCount + 1
+        if (downloaded.permanent) {
+          image.remoteGone = true
+        }
         changed = true
       }
     }
@@ -663,11 +716,13 @@ export async function diagnoseTaskAssets() {
 }
 
 /**
- * 批量修复（只使用本地数据，不访问网络）
- * @param {{redownload?: boolean, onProgress?: (done: number, total: number) => void}} options
+ * 批量修复
+ * @param {{redownload?: boolean, resetFailures?: boolean, onProgress?: (done: number, total: number) => void}} options
+ *   redownload=true 时会尝试从远程链接重新下载（网络较慢）
+ *   resetFailures=true 时会清空失败计数，用于手动重试
  */
 export async function repairAllTaskAssets(options = {}) {
-  const { redownload = false, onProgress } = options
+  const { redownload = false, resetFailures = false, onProgress } = options
   const [tasks, favorites] = await Promise.all([db.tasks.toArray(), db.favorites.toArray()])
 
   const targets = [
@@ -677,16 +732,22 @@ export async function repairAllTaskAssets(options = {}) {
 
   let repaired = 0
   let missing = 0
+  let recovered = 0
 
   for (let index = 0; index < targets.length; index += 1) {
     const target = targets[index]
 
     try {
+      if (resetFailures) {
+        await resetRemoteFailures(target.tableName, target.id)
+      }
+
       const result = await ensureTaskAssets(target.tableName, target.id, { redownload })
       if (result.changed) {
         repaired += 1
       }
       missing += result.missing
+      recovered += result.recovered
     } catch (error) {
       console.warn('⚠️ 修复任务图片资源失败:', target, error)
     }
@@ -696,7 +757,38 @@ export async function repairAllTaskAssets(options = {}) {
     }
   }
 
-  return { total: targets.length, repaired, missing }
+  return { total: targets.length, repaired, missing, recovered }
+}
+
+/**
+ * 清空远程下载失败计数，让下次修复重新尝试（用于手动重试）
+ * @param {'tasks' | 'favorites'} tableName
+ */
+async function resetRemoteFailures(tableName, taskId) {
+  const table = tableName === 'favorites' ? db.favorites : db.tasks
+  const record = await table.get(taskId)
+
+  if (!record || !Array.isArray(record.images)) {
+    return
+  }
+
+  let changed = false
+
+  for (const image of record.images) {
+    if (!image || typeof image !== 'object') {
+      continue
+    }
+
+    if (image.remoteFailCount || image.remoteGone) {
+      delete image.remoteFailCount
+      delete image.remoteGone
+      changed = true
+    }
+  }
+
+  if (changed) {
+    await table.put(record)
+  }
 }
 
 /**

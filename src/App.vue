@@ -1049,8 +1049,25 @@ export default {
 
       try {
         const before = await diagnoseTaskAssets()
-        const repair = await repairAllTaskAssets({ redownload: false })
-        const after = await diagnoseTaskAssets()
+        // 第一步只用本地数据：补缩略图/预览图，不访问网络
+        const localRepair = await repairAllTaskAssets({ redownload: false })
+        const afterLocal = await diagnoseTaskAssets()
+        const missingLocally = afterLocal.tasks.missingOriginal + afterLocal.favorites.missingOriginal
+
+        let remoteRepair = null
+
+        // 第二步（可选）：从还没过期的远程链接把原图救回来
+        if (missingLocally > 0) {
+          const attempt = window.confirm(
+            `检测到 ${missingLocally} 张图片只剩远程链接（本地原图已经不在了）。\n\n是否现在尝试从远程链接重新下载？链接还没过期的可以救回来，可能需要几十秒。`
+          )
+
+          if (attempt) {
+            remoteRepair = await repairAllTaskAssets({ redownload: true, resetFailures: true })
+          }
+        }
+
+        const after = remoteRepair ? await diagnoseTaskAssets() : afterLocal
         await refreshTaskLists()
 
         const missingImages = after.tasks.missingOriginal + after.favorites.missingOriginal
@@ -1058,9 +1075,14 @@ export default {
           `历史任务：${before.tasks.records} 条，图片 ${before.tasks.images} 张（本地原图 ${before.tasks.original} 张）`,
           `收藏任务：${before.favorites.records} 条，图片 ${before.favorites.images} 张（本地原图 ${before.favorites.original} 张）`,
           `本地原图 Blob：${before.blobCount} 个`,
-          `补齐缩略图/预览图：${repair.repaired} 条记录已更新`,
-          `仍缺少本地原图：${missingImages} 张（远程链接过期后无法恢复）`
+          `补齐缩略图/预览图：${localRepair.repaired} 条记录已更新`
         ]
+
+        if (remoteRepair) {
+          lines.push(`从远程链接救回：${remoteRepair.recovered} 张`)
+        }
+
+        lines.push(`仍缺少本地原图：${missingImages} 张（远程链接过期后无法恢复）`)
 
         if (before.usage) {
           lines.push(`站点存储占用：${formatBytes(before.usage.usage)} / 配额 ${formatBytes(before.usage.quota)}`)
