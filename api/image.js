@@ -108,12 +108,17 @@ export default async function handler(req, res) {
     }
 
     const { Readable } = await import('node:stream')
+    const { pipeline } = await import('node:stream/promises')
     const stream = Readable.fromWeb(upstream.body)
-    stream.on('error', error => {
+
+    // 必须等流真正写完再让 handler 返回，否则函数会被提前收尾，
+    // 客户端只会收到被截断的半张图（表现为图片能打开但只剩一部分像素）
+    await pipeline(stream, res).catch(error => {
+      if (error && (error.code === 'ERR_STREAM_PREMATURE_CLOSE' || error.name === 'AbortError')) {
+        return
+      }
       console.error('Image proxy stream error:', error)
-      res.destroy(error)
     })
-    stream.pipe(res)
   } catch (error) {
     console.error('Image proxy error:', error)
     if (res.headersSent) {
