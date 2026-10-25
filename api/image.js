@@ -91,8 +91,9 @@ export default async function handler(req, res) {
     }
 
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
-    // 临时签名地址本身会变，缓存一天足够，避免重复回源
-    res.setHeader('Cache-Control', 'public, max-age=86400')
+    // 只在 CDN 边缘缓存一天（s-maxage），不让浏览器缓存：
+    // 否则一旦某次响应有问题，本地修复会一直命中那份坏缓存
+    res.setHeader('Cache-Control', 'public, s-maxage=86400, max-age=0')
     res.statusCode = 200
 
     // 注意：不要回传上游的 Content-Length。

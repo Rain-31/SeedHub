@@ -374,7 +374,8 @@ async function fetchBlobFrom(sourceUrl, timeout = DIRECT_FETCH_TIMEOUT) {
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   try {
-    const response = await fetch(sourceUrl, { mode: 'cors', signal: controller.signal })
+    // no-store：避免命中之前缓存下来的坏响应（例如被截断的图），修复时一定要拿新的字节
+    const response = await fetch(sourceUrl, { mode: 'cors', cache: 'no-store', signal: controller.signal })
 
     if (!response.ok) {
       return {
