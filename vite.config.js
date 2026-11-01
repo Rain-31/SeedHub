@@ -107,7 +107,7 @@ export default defineConfig({
                 
                 // 转发请求到Telegraph API
                 const fetch = (await import('node-fetch')).default
-                const response = await fetch('https://telegraph-image-92x.pages.dev/upload', {
+                const response = await fetch('https://telegraph-image-1hy.pages.dev/upload', {
                   method: 'POST',
                   body: buffer,
                   headers: {
@@ -157,7 +157,7 @@ export default defineConfig({
             return
           }
 
-          if (!/(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-92x\.pages\.dev)$/i.test(target.hostname)) {
+          if (!/(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-1hy\.pages\.dev)$/i.test(target.hostname)) {
             res.statusCode = 403
             res.end('Host not allowed')
             return

@@ -20,7 +20,7 @@ const DIRECT_FETCH_TIMEOUT = 15000
 const PROXY_FETCH_TIMEOUT = 180000
 // 已知不返回 CORS 响应头的图床（火山 TOS / BytePlus 等）：直连 fetch 必然被浏览器拦，
 // 只会让控制台报一堆红字，所以直接走同源代理
-const NO_CORS_HOST_PATTERN = /(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-92x\.pages\.dev)$/i
+const NO_CORS_HOST_PATTERN = /(^|\.)(volces\.com|bytepluses\.com|byteimg\.com|ibyteimg\.com|telegraph-image-1hy\.pages\.dev)$/i
 
 function shouldSkipDirectFetch(url) {
   try {

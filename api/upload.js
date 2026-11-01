@@ -31,7 +31,7 @@ export default async function handler(req, res) {
           const buffer = Buffer.concat(chunks)
           
           // 转发请求到Telegraph API
-          const response = await fetch('https://telegraph-image-92x.pages.dev/upload', {
+          const response = await fetch('https://telegraph-image-1hy.pages.dev/upload', {
             method: 'POST',
             body: buffer,
             headers: {
@@ -54,7 +54,7 @@ export default async function handler(req, res) {
     }
 
     // 如果有直接的文件数据，转发到Telegraph API
-    const response = await fetch('https://telegraph-image-92x.pages.dev/upload', {
+    const response = await fetch('https://telegraph-image-1hy.pages.dev/upload', {
       method: 'POST',
       body: formData
     })

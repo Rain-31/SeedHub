@@ -12,7 +12,7 @@ const ALLOWED_HOST_PATTERNS = [
   /(^|\.)bytepluses\.com$/i,
   /(^|\.)byteimg\.com$/i,
   /(^|\.)ibyteimg\.com$/i,
-  /(^|\.)telegraph-image-92x\.pages\.dev$/i
+  /(^|\.)telegraph-image-1hy\.pages\.dev$/i
 ]
 
 const MAX_IMAGE_BYTES = 40 * 1024 * 1024

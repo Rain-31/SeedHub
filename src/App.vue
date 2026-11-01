@@ -1819,7 +1819,7 @@ export default {
           
           if (response.data && response.data.length > 0) {
             const imageData = response.data[0]
-            const imageUrl = `https://telegraph-image-92x.pages.dev${imageData.src}`
+            const imageUrl = `https://telegraph-image-1hy.pages.dev${imageData.src}`
             
             // 将图片URL填入对应的输入框
             form.imageUrls[index] = imageUrl
