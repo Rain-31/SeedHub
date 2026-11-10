@@ -83,8 +83,39 @@
                 <div
                   v-for="(url, index) in form.imageUrls"
                   :key="index"
-                  class="flex gap-2"
+                  class="flex items-center gap-2"
                 >
+                  <!-- 缩略图预览 -->
+                  <button
+                    v-if="hasPreviewUrl(url)"
+                    type="button"
+                    @click="openImageModal(url.trim(), isVideoModel ? `图片 ${index + 1}` : `参考图片 ${index + 1}`)"
+                    class="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-50 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    title="点击查看大图"
+                  >
+                    <img
+                      v-if="!previewImageErrors[url.trim()]"
+                      :src="url.trim()"
+                      :alt="`图片 ${index + 1} 缩略图`"
+                      class="h-full w-full object-cover"
+                      loading="lazy"
+                      @error="markPreviewError(url)"
+                    />
+                    <span v-else class="flex h-full w-full items-center justify-center text-gray-400">
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                      </svg>
+                    </span>
+                  </button>
+                  <div
+                    v-else
+                    class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md border border-dashed border-gray-300 bg-gray-50 text-gray-300"
+                    title="暂无图片"
+                  >
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                  </div>
                   <input
                     v-model="form.imageUrls[index]"
                     type="url"
@@ -797,6 +828,8 @@ export default {
     
     // 图片上传状态
     const uploadingIndex = ref(-1)
+    // 参考图片缩略图加载失败的地址集合（key 为图片 URL）
+    const previewImageErrors = reactive({})
 
     // 图片放大模态框状态
     const modalImage = reactive({
@@ -1780,6 +1813,14 @@ export default {
       }
     }
 
+    // 参考图片缩略图预览
+    const hasPreviewUrl = (url) => typeof url === 'string' && url.trim().length > 0
+
+    const markPreviewError = (url) => {
+      const key = typeof url === 'string' ? url.trim() : ''
+      if (key) previewImageErrors[key] = true
+    }
+
     // 图片上传功能
     const uploadImage = async (index) => {
       // 创建文件输入元素
@@ -2279,6 +2320,9 @@ export default {
       formatDurationOption,
       modalImage,
       uploadingIndex,
+      previewImageErrors,
+      hasPreviewUrl,
+      markPreviewError,
       availableSizes,
       historyTasks,
       favoriteTasks,
