@@ -342,7 +342,16 @@ export async function addFavoriteTask(task) {
             mimeType: image.mimeType,
             missing: image.missing,
             remoteGone: image.remoteGone,
-            remoteFailCount: image.remoteFailCount
+            remoteFailCount: image.remoteFailCount,
+            layerIndex: image.layerIndex,
+            layerName: image.layerName,
+            layerDescription: image.layerDescription,
+            boundingBox: image.boundingBox,
+            textRecognition: image.textRecognition,
+            imageSize: image.imageSize,
+            outputFormat: image.outputFormat,
+            transparent: image.transparent,
+            preserveAlpha: image.preserveAlpha
           }))
         }
       : {}),
@@ -498,9 +507,10 @@ function decodeWithImageElement(blob) {
 }
 
 /**
- * 将图片 Blob 等比缩放到指定最长边并重新编码为 JPEG
+ * 将图片 Blob 等比缩放到指定最长边并重新编码
+ * options.preserveAlpha=true 且源图为 PNG/WebP 时保留 Alpha 通道（图层/透明背景）
  */
-async function createResizedBlob(blob, maxSize, quality) {
+async function createResizedBlob(blob, maxSize, quality, options = {}) {
   if (!blob || typeof document === 'undefined') {
     return null
   }
@@ -545,8 +555,12 @@ async function createResizedBlob(blob, maxSize, quality) {
       source.close()
     }
 
+    // 图层与透明背景必须保留 Alpha，否则透明区域会被压成黑色
+    const keepAlpha = Boolean(options.preserveAlpha) && /png|webp/i.test(blob.type || '')
+    const outputType = keepAlpha ? 'image/png' : 'image/jpeg'
+
     return await new Promise(resolve => {
-      canvas.toBlob(resolve, 'image/jpeg', quality)
+      canvas.toBlob(resolve, outputType, quality)
     })
   } catch (error) {
     console.warn('⚠️ 生成图片尺寸失败:', error)
@@ -557,15 +571,15 @@ async function createResizedBlob(blob, maxSize, quality) {
 /**
  * 使用 canvas 生成缩略图，避免历史列表加载大图
  */
-export function createThumbnailBlob(blob) {
-  return createResizedBlob(blob, THUMBNAIL_MAX_SIZE, 0.8)
+export function createThumbnailBlob(blob, options = {}) {
+  return createResizedBlob(blob, THUMBNAIL_MAX_SIZE, 0.8, options)
 }
 
 /**
  * 生成屏幕尺寸预览图（最长边 1600px），用于结果区和图片弹窗，避免直接解码 2K/4K 原图
  */
-export function createPreviewBlob(blob) {
-  return createResizedBlob(blob, PREVIEW_MAX_SIZE, 0.82)
+export function createPreviewBlob(blob, options = {}) {
+  return createResizedBlob(blob, PREVIEW_MAX_SIZE, 0.82, options)
 }
 
 /**
@@ -721,7 +735,7 @@ export async function ensureTaskAssets(tableName, taskId, options = {}) {
     }
 
     if (!isUsableBlob(image.thumbnail)) {
-      const thumbnail = await createThumbnailBlob(original)
+      const thumbnail = await createThumbnailBlob(original, { preserveAlpha: Boolean(image.preserveAlpha) })
       if (thumbnail) {
         image.thumbnail = thumbnail
         changed = true
@@ -729,7 +743,7 @@ export async function ensureTaskAssets(tableName, taskId, options = {}) {
     }
 
     if (!isUsableBlob(image.preview)) {
-      const preview = await createPreviewBlob(original)
+      const preview = await createPreviewBlob(original, { preserveAlpha: Boolean(image.preserveAlpha) })
       if (preview) {
         image.preview = preview
         changed = true
