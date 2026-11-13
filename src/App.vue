@@ -170,6 +170,7 @@
                     <option value="seedream-4-5-251128">SeedReam 4.5</option>
                     <option value="doubao-seedream-4-5-251128">Doubao SeedReam 4.5</option>
                     <option value="seedream-5-0-260128">SeedReam 5.0 Lite</option>
+                    <option value="dola-seedream-5-5-261028">SeedReam 5.5</option>
                     <option value="dola-seedream-5-0-pro-260628">SeedReam 5.0 Pro</option>
                     <option value="dola-seedream-5-0-flash-260915">SeedReam 5.0 Flash</option>
                     <option value="dreamina-seedance-2-0-260128">Seedance 2.0</option>
@@ -198,8 +199,8 @@
                   </select>
                 </div>
 
-                <!-- 最大图片数量 -->
-                <div v-if="!isVideoModel">
+                <!-- 最大图片数量（仅支持连续生图的模型） -->
+                <div v-if="!isVideoModel && supportsSequentialGeneration">
                   <label for="maxImages" class="block text-sm font-medium text-gray-700 mb-2">
                     最大图片数量
                   </label>
@@ -250,6 +251,108 @@
                     </option>
                   </select>
                 </div>
+              </div>
+
+              <!-- Seedream 5.5 专属能力 -->
+              <div v-if="supportsLayerDecomposition" class="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <h4 class="text-sm font-medium text-gray-900">SeedReam 5.5 新能力</h4>
+                    <p class="mt-1 text-xs text-gray-500">
+                      支持图层拆分、原生 RGBA 与富文本 OCR；不支持批量连续生图、联网搜索和流式输出。
+                    </p>
+                  </div>
+                  <label class="flex flex-shrink-0 items-center gap-2 text-sm text-gray-700">
+                    <input
+                      v-model="form.layerDecomposition"
+                      type="checkbox"
+                      class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    图层拆分
+                  </label>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div v-if="isLayerDecomposition">
+                    <label for="layerMaxImages" class="block text-sm font-medium text-gray-700 mb-2">
+                      最大输出图片数（含底图）
+                    </label>
+                    <input
+                      id="layerMaxImages"
+                      v-model.number="form.layerMaxImages"
+                      type="number"
+                      min="2"
+                      max="100"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <p class="mt-1 text-xs text-gray-500">范围 2-100，默认 30；数值越大通常拆分越细。</p>
+                  </div>
+
+                  <div v-if="isLayerDecomposition" class="flex items-end pb-1">
+                    <label class="flex items-center">
+                      <input
+                        v-model="form.textRecognition"
+                        type="checkbox"
+                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span class="ml-2 text-sm text-gray-700">返回富文本 OCR</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label for="outputFormat" class="block text-sm font-medium text-gray-700 mb-2">
+                      输出格式
+                    </label>
+                    <select
+                      id="outputFormat"
+                      v-model="form.outputFormat"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPEG</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label for="background" class="block text-sm font-medium text-gray-700 mb-2">
+                      透明度
+                    </label>
+                    <select
+                      id="background"
+                      v-model="form.background"
+                      :disabled="isLayerDecomposition"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:text-gray-500"
+                    >
+                      <option value="auto">auto（模型决定）</option>
+                      <option value="transparent">transparent（RGBA）</option>
+                      <option value="opaque">opaque（RGB）</option>
+                    </select>
+                    <p v-if="isLayerDecomposition" class="mt-1 text-xs text-gray-500">
+                      图层拆分不支持该参数，图层固定输出带 Alpha 的 PNG。
+                    </p>
+                    <p v-else class="mt-1 text-xs text-gray-500">
+                      transparent 可生成原生 RGBA；与 JPEG 输出格式不能同时使用。
+                    </p>
+                  </div>
+
+                  <div class="sm:col-span-2">
+                    <label for="safetyIdentifier" class="block text-sm font-medium text-gray-700 mb-2">
+                      safety_identifier（可选）
+                    </label>
+                    <input
+                      id="safetyIdentifier"
+                      v-model="form.safetyIdentifier"
+                      type="text"
+                      maxlength="64"
+                      placeholder="用于内容安全检测的稳定用户标识，建议传入哈希值"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                </div>
+
+                <p v-if="isLayerDecomposition" class="mt-3 text-xs text-amber-600">
+                  图层拆分模式要求且仅能提供 1 张参考图片；提示词可留空，留空时模型会自动识别主要元素。
+                </p>
               </div>
 
               <!-- 水印选项 -->
@@ -505,6 +608,7 @@
                 :alt="`生成的图片 ${index + 1}`"
                 decoding="async"
                 class="w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+                :class="image.transparent ? 'bg-checkerboard' : ''"
                 @load="onImageLoad"
                 @error="onResultImageError(image)"
                 @click="openImageModal(image.url, `生成的图片 ${index + 1}`)"
@@ -519,8 +623,28 @@
                 </p>
               </div>
               <div class="p-3 bg-gray-50">
-                <div class="flex justify-between items-center gap-3">
-                  <span class="text-sm text-gray-600">图片 {{ index + 1 }}</span>
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <span class="text-sm text-gray-600">
+                      <template v-if="image.layerIndex !== null && image.layerIndex !== undefined">
+                        {{ image.layerIndex === 0 ? '底图' : `图层 ${image.layerIndex}` }}
+                        <template v-if="image.layerName"> · {{ image.layerName }}</template>
+                      </template>
+                      <template v-else>图片 {{ index + 1 }}</template>
+                    </span>
+                    <p v-if="image.layerDescription" class="mt-1 text-xs text-gray-500">
+                      {{ image.layerDescription }}
+                    </p>
+                    <div
+                      v-if="image.layerIndex !== null && image.layerIndex !== undefined"
+                      class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400"
+                    >
+                      <span>z_index {{ image.layerIndex }}</span>
+                      <span v-if="image.imageSize">{{ image.imageSize }}</span>
+                      <span v-if="image.outputFormat">{{ image.outputFormat.toUpperCase() }}</span>
+                      <span v-if="image.transparent" class="text-emerald-600">含透明通道</span>
+                    </div>
+                  </div>
                   <span
                     v-if="image.displaySource === 'remote' || image.displaySource === 'proxy'"
                     class="text-xs text-amber-600"
@@ -538,6 +662,32 @@
                     下载原图
                   </button>
                 </div>
+
+                <details
+                  v-if="image.textRecognition"
+                  class="mt-3 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600"
+                >
+                  <summary class="cursor-pointer font-medium text-gray-700">
+                    富文本 OCR（{{ textRecognitionLineCount(image.textRecognition) }} 行）
+                  </summary>
+                  <p class="mt-2 whitespace-pre-wrap break-words">{{ image.textRecognition.text }}</p>
+                  <ul class="mt-2 space-y-1">
+                    <li
+                      v-for="(line, lineIndex) in image.textRecognition.lines || []"
+                      :key="lineIndex"
+                    >
+                      <span class="text-gray-400">第 {{ lineIndex + 1 }} 行：</span>
+                      <span
+                        v-for="(run, runIndex) in line.runs || []"
+                        :key="runIndex"
+                        class="mr-1"
+                      >
+                        {{ run.text }}
+                        <span class="text-gray-400">[{{ describeTextStyle(run.style) }}]</span>
+                      </span>
+                    </li>
+                  </ul>
+                </details>
               </div>
             </div>
           </div>
@@ -722,9 +872,12 @@ import {
 
 const IMAGE_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
 const VIDEO_DEFAULT_ENDPOINT = 'ark.ap-southeast.bytepluses.com'
-// Seedream 5.0 pro / flash 仅支持单图生成，不支持批量（sequential）生图，
+// Seedream 5.5：支持图层拆分 / 原生 RGBA / 富文本 OCR，但不支持批量（sequential）生图
+const SEEDREAM_5_5_MODEL = 'dola-seedream-5-5-261028'
+// Seedream 5.5 / 5.0 pro / 5.0 flash 仅支持单图生成，不支持批量（sequential）生图，
 // 传入 sequential_image_generation 会导致请求报错。
 const MODELS_WITHOUT_SEQUENTIAL_GENERATION = [
+  SEEDREAM_5_5_MODEL,
   'dola-seedream-5-0-pro-260628',
   'dola-seedream-5-0-flash-260915'
 ]
@@ -871,7 +1024,14 @@ export default {
       watermark: true,
       ratio: '16:9',
       duration: 5,
-      generateAudio: true
+      generateAudio: true,
+      // Seedream 5.5 新参数
+      layerDecomposition: false,
+      layerMaxImages: 30,
+      textRecognition: false,
+      outputFormat: 'png',
+      background: 'auto',
+      safetyIdentifier: ''
     })
 
     const videoTask = reactive({
@@ -887,6 +1047,11 @@ export default {
 
     const selectedVideoModel = computed(() => getVideoModelConfig(form.model))
     const isVideoModel = computed(() => Boolean(selectedVideoModel.value))
+    // Seedream 5.5 专属能力
+    const supportsLayerDecomposition = computed(() => form.model === SEEDREAM_5_5_MODEL)
+    const isLayerDecomposition = computed(() => supportsLayerDecomposition.value && form.layerDecomposition)
+    // 5.5 / 5.0 pro / 5.0 flash 不支持连续生图
+    const supportsSequentialGeneration = computed(() => Boolean(form.model) && !MODELS_WITHOUT_SEQUENTIAL_GENERATION.includes(form.model))
     const supportsVideoAudio = computed(() => Boolean(selectedVideoModel.value && selectedVideoModel.value.supportsGenerateAudio))
     const videoModelLabel = computed(() => selectedVideoModel.value ? selectedVideoModel.value.label : '视频模型')
     const videoRatioOptions = computed(() => selectedVideoModel.value ? selectedVideoModel.value.ratioOptions : [])
@@ -901,9 +1066,17 @@ export default {
       return isVideoModel.value ? '首帧 / 尾帧图片URL（可选）' : '参考图片URL（可选）'
     })
     const mediaFieldHint = computed(() => {
-      return isVideoModel.value
-        ? '可只填 1 张作为首帧，或填 2 张作为首帧和尾帧；也支持仅用提示词生成视频。'
-        : '可直接输入图片 URL，或点击上传按钮上传本地图片。'
+      if (isVideoModel.value) {
+        return '可只填 1 张作为首帧，或填 2 张作为首帧和尾帧；也支持仅用提示词生成视频。'
+      }
+
+      if (supportsLayerDecomposition.value) {
+        return isLayerDecomposition.value
+          ? '图层拆分需要且仅需要 1 张图片（png / jpeg），更多图片会导致请求报错。'
+          : 'SeedReam 5.5 最多支持 10 张参考图片（2-10 张用于多图融合）。'
+      }
+
+      return '可直接输入图片 URL，或点击上传按钮上传本地图片。'
     })
     const addImageButtonText = computed(() => {
       return isVideoModel.value ? '+ 添加尾帧图片' : '+ 添加更多参考图片'
@@ -914,7 +1087,14 @@ export default {
       return isVideoModel.value ? '生成中，正在轮询任务状态...' : '生成中...'
     })
     const emptyStateText = computed(() => isVideoModel.value ? '填写左侧表单开始生成视频' : '填写左侧表单开始生成图片')
-    const maxImageInputs = computed(() => isVideoModel.value ? 2 : 5)
+    const maxImageInputs = computed(() => {
+      if (isVideoModel.value) {
+        return 2
+      }
+
+      // Seedream 5.5 单图生成最多支持 10 张参考图
+      return supportsLayerDecomposition.value ? 10 : 5
+    })
     const videoStatusText = computed(() => {
       return VIDEO_STATUS_LABELS[videoTask.status] || videoTask.status || VIDEO_STATUS_LABELS.idle
     })
@@ -936,12 +1116,28 @@ export default {
       }
 
       // 各图片模型支持的分辨率档位（参考火山引擎官方文档）
+      // - Seedream 5.5: 1K、1.5K、2K（图层拆分为 auto、1K、1.5K、2K）
       // - Seedream 5.0 Pro: 1K、2K
       // - Seedream 5.0 Flash: 1K、1.5K、2K
       // - Seedream 5.0 Lite: 2K、3K、4K
       // - Seedream 4.5: 2K、4K
       // - Seedream 4.0: 1K、2K、4K
-      if (form.model === 'dola-seedream-5-0-pro-260628') {
+      if (supportsLayerDecomposition.value) {
+        const sizes = [
+          { value: '1K', label: '1K (1024x1024)' },
+          { value: '1.5K', label: '1.5K (1536x1536)' },
+          { value: '2K', label: '2K (2048x2048)' }
+        ]
+
+        if (isLayerDecomposition.value) {
+          return [
+            { value: 'auto', label: '自动（跟随原图尺寸）' },
+            ...sizes
+          ]
+        }
+
+        return sizes
+      } else if (form.model === 'dola-seedream-5-0-pro-260628') {
         return [
           { value: '1K', label: '1K (1024x1024)' },
           { value: '2K', label: '2K (2048x2048)' }
@@ -1177,6 +1373,11 @@ export default {
       }
 
       const count = Array.isArray(task.images) ? task.images.length : 0
+
+      if (task.layerDecomposition) {
+        return `${count} 张（1 底图 + ${Math.max(0, count - 1)} 图层）`
+      }
+
       return `${count} 张图片`
     }
 
@@ -1203,7 +1404,14 @@ export default {
             blobKey: '',
             blob: null,
             missing: true,
-            revised_prompt: ''
+            revised_prompt: '',
+            layerIndex: null,
+            layerName: '',
+            layerDescription: '',
+            textRecognition: null,
+            imageSize: '',
+            outputFormat: '',
+            transparent: false
           }
         }
 
@@ -1221,7 +1429,15 @@ export default {
           blobKey: image.blobKey || '',
           blob: originalBlob,
           missing: !displayBlob && !remoteUrl,
-          revised_prompt: image.revised_prompt
+          revised_prompt: image.revised_prompt,
+          layerIndex: image.layerIndex ?? null,
+          layerName: image.layerName || '',
+          layerDescription: image.layerDescription || '',
+          boundingBox: image.boundingBox || null,
+          textRecognition: image.textRecognition || null,
+          imageSize: image.imageSize || '',
+          outputFormat: image.outputFormat || '',
+          transparent: Boolean(image.transparent)
         }
       })
     }
@@ -1486,8 +1702,19 @@ export default {
 
       ensureMinimumImageInputs()
 
+      // 非 5.5 模型不允许残留图层拆分相关状态
+      if (!supportsLayerDecomposition.value) {
+        form.layerDecomposition = false
+        form.textRecognition = false
+      }
+
+      if (form.imageUrls.length > maxImageInputs.value) {
+        form.imageUrls = form.imageUrls.slice(0, maxImageInputs.value)
+        ensureMinimumImageInputs()
+      }
+
       if (!availableSizes.value.map(item => item.value).includes(form.size)) {
-        form.size = '2K'
+        form.size = isLayerDecomposition.value ? 'auto' : '2K'
       }
     }
 
@@ -1626,21 +1853,49 @@ export default {
     const buildImageRequestData = (prompt, validImageUrls) => {
       const requestData = {
         model: form.model,
-        prompt,
         response_format: 'url',
         size: form.size,
         watermark: form.watermark
       }
 
-      if (!MODELS_WITHOUT_SEQUENTIAL_GENERATION.includes(form.model)) {
-        requestData.sequential_image_generation = form.maxImages > 1 ? 'auto' : 'disabled'
-        requestData.sequential_image_generation_options = {
-          max_images: form.maxImages
-        }
+      if (prompt) {
+        requestData.prompt = prompt
       }
 
-      if (validImageUrls.length > 0) {
-        requestData.image = validImageUrls
+      if (supportsLayerDecomposition.value) {
+        // Seedream 5.5：图层拆分与原生 RGBA 互斥使用
+        requestData.layer_decomposition = isLayerDecomposition.value
+        requestData.output_format = form.outputFormat
+
+        if (isLayerDecomposition.value) {
+          requestData.layer_decomposition_options = {
+            max_images: Math.min(100, Math.max(2, Number(form.layerMaxImages) || 30)),
+            text_recognition: Boolean(form.textRecognition)
+          }
+          // 图层拆分只接受 1 张图片
+          requestData.image = validImageUrls.slice(0, 1)
+        } else {
+          requestData.background = form.background
+          if (validImageUrls.length > 0) {
+            requestData.image = validImageUrls
+          }
+        }
+
+        const safetyIdentifier = form.safetyIdentifier.trim()
+        if (safetyIdentifier) {
+          requestData.safety_identifier = safetyIdentifier
+        }
+      } else {
+        if (validImageUrls.length > 0) {
+          requestData.image = validImageUrls
+        }
+
+        if (supportsSequentialGeneration.value) {
+          requestData.sequential_image_generation = form.maxImages > 1 ? 'auto' : 'disabled'
+          requestData.sequential_image_generation_options = {
+            max_images: form.maxImages
+          }
+        }
       }
 
       return requestData
@@ -1683,19 +1938,60 @@ export default {
       return value === -1 ? '自动' : `${value} 秒`
     }
 
+    // 提取 Seedream 5.5 图层 / 透明度 / OCR 等新增响应字段
+    const pickImageMeta = (item) => {
+      const source = item || {}
+      const hasLayerIndex = typeof source.z_index === 'number'
+
+      return {
+        layerIndex: hasLayerIndex ? source.z_index : null,
+        layerName: hasLayerIndex ? (source.name || '') : '',
+        layerDescription: hasLayerIndex ? (source.description || '') : '',
+        boundingBox: source.bounding_box || null,
+        textRecognition: source.text_recognition || null,
+        imageSize: source.size || '',
+        outputFormat: source.output_format || '',
+        transparent: source.background === 'transparent' || (hasLayerIndex && source.z_index > 0)
+      }
+    }
+
+    // 图层按 z_index 升序排列，保证从底图到上层依次展示
+    const sortApiImages = (items) => {
+      if (!Array.isArray(items)) {
+        return []
+      }
+
+      const hasLayerIndex = items.some(item => item && typeof item.z_index === 'number')
+      if (!hasLayerIndex) {
+        return items
+      }
+
+      return [...items].sort((a, b) => (a.z_index || 0) - (b.z_index || 0))
+    }
+
     // 将生成结果图片转存为原图、缩略图与预览图后写入 IndexedDB
     const persistImageTask = async (apiImages, prompt) => {
-      const images = await Promise.all(apiImages.map(async item => {
+      // 转存期间用户可能切换模型/参数，先固定本次请求的配置
+      const layerMode = isLayerDecomposition.value
+      const outputFormat = form.outputFormat
+      const background = form.background
+
+      const images = await Promise.all(sortApiImages(apiImages).map(async item => {
+        const meta = pickImageMeta(item)
         const downloaded = item.url
           ? await fetchImageBlobDetailed(item.url)
           : { blob: null, error: '结果里没有图片地址' }
         const blob = downloaded.blob
-        const thumbnail = blob ? await createThumbnailBlob(blob) : null
-        const preview = blob ? await createPreviewBlob(blob) : null
+        // 透明背景 / 图层需要保留 Alpha，缩略图与预览图改存 PNG
+        const preserveAlpha = layerMode || meta.transparent
+        const thumbnail = blob ? await createThumbnailBlob(blob, { preserveAlpha }) : null
+        const preview = blob ? await createPreviewBlob(blob, { preserveAlpha }) : null
 
         return {
           url: item.url,
           revised_prompt: item.revised_prompt,
+          ...meta,
+          preserveAlpha,
           blob,
           thumbnail,
           preview,
@@ -1710,6 +2006,9 @@ export default {
         model: form.model,
         size: form.size,
         watermark: form.watermark,
+        layerDecomposition: layerMode,
+        outputFormat,
+        background,
         images
       })
     }
@@ -1735,6 +2034,24 @@ export default {
       (newModel) => {
         applyModelDefaults(newModel)
         resetGenerationState()
+      }
+    )
+
+    // 图层拆分开关与尺寸档位联动：开启时默认 auto，关闭时回到 2K
+    watch(
+      () => form.layerDecomposition,
+      (enabled) => {
+        if (!supportsLayerDecomposition.value) {
+          return
+        }
+
+        const allowed = availableSizes.value.map(item => item.value)
+
+        if (enabled) {
+          form.size = 'auto'
+        } else if (!allowed.includes(form.size)) {
+          form.size = allowed.includes('2K') ? '2K' : allowed[0]
+        }
       }
     )
 
@@ -1771,8 +2088,11 @@ export default {
       const savedData = loadFormData()
       if (savedData) {
         const savedModel = savedData.model || form.model
+        const savedMaxInputs = isVideoModelId(savedModel)
+          ? 2
+          : (savedModel === SEEDREAM_5_5_MODEL ? 10 : 5)
         const imageUrls = Array.isArray(savedData.imageUrls)
-          ? savedData.imageUrls.slice(0, isVideoModelId(savedModel) ? 2 : 5)
+          ? savedData.imageUrls.slice(0, savedMaxInputs)
           : []
 
         while (imageUrls.length < 2) {
@@ -1791,7 +2111,13 @@ export default {
           watermark: savedData.watermark !== undefined ? savedData.watermark : form.watermark,
           ratio: savedData.ratio || form.ratio,
           duration: savedData.duration ?? form.duration,
-          generateAudio: savedData.generateAudio !== undefined ? savedData.generateAudio : form.generateAudio
+          generateAudio: savedData.generateAudio !== undefined ? savedData.generateAudio : form.generateAudio,
+          layerDecomposition: savedData.layerDecomposition === true,
+          layerMaxImages: savedData.layerMaxImages || 30,
+          textRecognition: savedData.textRecognition === true,
+          outputFormat: savedData.outputFormat || 'png',
+          background: savedData.background || 'auto',
+          safetyIdentifier: savedData.safetyIdentifier || ''
         })
         applyModelDefaults(form.model)
         hasSavedFormData.value = true
@@ -1917,7 +2243,13 @@ export default {
           watermark: true,
           ratio: '16:9',
           duration: 5,
-          generateAudio: true
+          generateAudio: true,
+          layerDecomposition: false,
+          layerMaxImages: 30,
+          textRecognition: false,
+          outputFormat: 'png',
+          background: 'auto',
+          safetyIdentifier: ''
         })
         resetGenerationState()
       }
@@ -1945,8 +2277,24 @@ export default {
           error.value = '请输入提示词或至少提供一张图片'
           return
         }
+      } else if (isLayerDecomposition.value) {
+        if (validImageUrls.length !== 1) {
+          error.value = '图层拆分模式需要且仅需要 1 张参考图片'
+          return
+        }
       } else if (!normalizedPrompt) {
         error.value = '请输入提示词'
+        return
+      }
+
+      if (
+        !isVideoModel.value &&
+        supportsLayerDecomposition.value &&
+        !isLayerDecomposition.value &&
+        form.outputFormat === 'jpeg' &&
+        form.background === 'transparent'
+      ) {
+        error.value = 'JPEG 输出格式不支持 transparent 透明背景，请改为 PNG 或选择 auto / opaque'
         return
       }
 
@@ -2007,7 +2355,7 @@ export default {
         const token = ++viewToken
 
         // 先把结果显示出来（远程地址），转存大图可能要几十秒，不能一直卡着“生成中”
-        generatedImages.value = apiImages.map(item => ({
+        generatedImages.value = sortApiImages(apiImages).map(item => ({
           url: item.url,
           remoteUrl: item.url,
           blob: null,
@@ -2015,7 +2363,8 @@ export default {
           proxyTried: false,
           blobKey: '',
           missing: false,
-          revised_prompt: item.revised_prompt
+          revised_prompt: item.revised_prompt,
+          ...pickImageMeta(item)
         }))
         loading.value = false
 
@@ -2293,6 +2642,29 @@ export default {
       document.body.style.overflow = 'auto'
     })
 
+    // 富文本 OCR 辅助展示
+    const textRecognitionLineCount = (recognition) => {
+      return recognition && Array.isArray(recognition.lines) ? recognition.lines.length : 0
+    }
+
+    const describeTextStyle = (style) => {
+      if (!style || typeof style !== 'object') {
+        return '样式未知'
+      }
+
+      const parts = []
+      if (style.similar_font_family) parts.push(style.similar_font_family)
+      if (style.foreground_color) parts.push(style.foreground_color)
+      if (style.bold) parts.push('粗体')
+      if (style.italic) parts.push('斜体')
+      if (style.underline) parts.push('下划线')
+      if (style.strikethrough) parts.push('删除线')
+      if (style.shadow) parts.push('阴影')
+      if (style.translucent) parts.push('半透明')
+
+      return parts.length > 0 ? parts.join(' / ') : '常规'
+    }
+
     return {
       form,
       loading,
@@ -2300,6 +2672,11 @@ export default {
       generatedImages,
       generatedVideo,
       isVideoModel,
+      supportsLayerDecomposition,
+      isLayerDecomposition,
+      supportsSequentialGeneration,
+      textRecognitionLineCount,
+      describeTextStyle,
       settingsTitle,
       promptPlaceholder,
       mediaFieldLabel,
