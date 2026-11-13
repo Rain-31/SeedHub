@@ -1481,9 +1481,74 @@ export default {
       image.url = ''
     }
 
+    /**
+     * 抓取当前表单的参考图片与高级设置，随任务一起持久化
+     * imageUrls 使用本次请求实际提交的图片地址，避免把空输入行也存进去
+     */
+    const captureTaskSettings = (imageUrls = []) => ({
+      model: form.model,
+      size: form.size,
+      maxImages: form.maxImages,
+      watermark: form.watermark,
+      ratio: form.ratio,
+      duration: form.duration,
+      generateAudio: form.generateAudio,
+      layerDecomposition: isLayerDecomposition.value,
+      layerMaxImages: form.layerMaxImages,
+      textRecognition: form.textRecognition,
+      outputFormat: form.outputFormat,
+      background: form.background,
+      safetyIdentifier: form.safetyIdentifier,
+      imageUrls: Array.isArray(imageUrls) ? imageUrls.map(url => String(url)) : []
+    })
+
+    /**
+     * 把任务里保存的参考图片与高级设置填回表单
+     * 旧任务没有 settings 字段，保持表单现状（只回填提示词）
+     */
+    const applyTaskSettingsToForm = (task) => {
+      const settings = task && task.settings
+
+      if (!settings || typeof settings !== 'object') {
+        return false
+      }
+
+      Object.assign(form, {
+        model: settings.model || form.model,
+        size: settings.size || form.size,
+        maxImages: settings.maxImages ?? form.maxImages,
+        watermark: settings.watermark !== undefined ? settings.watermark : form.watermark,
+        ratio: settings.ratio || form.ratio,
+        duration: settings.duration ?? form.duration,
+        generateAudio: settings.generateAudio !== undefined ? settings.generateAudio : form.generateAudio,
+        layerDecomposition: settings.layerDecomposition === true,
+        layerMaxImages: settings.layerMaxImages ?? 30,
+        textRecognition: settings.textRecognition === true,
+        outputFormat: settings.outputFormat || 'png',
+        background: settings.background || 'auto',
+        safetyIdentifier: settings.safetyIdentifier || ''
+      })
+
+      form.imageUrls = Array.isArray(settings.imageUrls) && settings.imageUrls.length > 0
+        ? settings.imageUrls.map(url => String(url))
+        : ['', '']
+      ensureMinimumImageInputs()
+
+      return true
+    }
+
     const showTaskInResult = async (task) => {
       if (!task) {
         return
+      }
+
+      form.prompt = task.prompt || ''
+      // 新任务带生成时的参考图片与高级设置；旧任务没有 settings，只回填提示词
+      const settingsApplied = applyTaskSettingsToForm(task)
+
+      // 切换模型 / 图层会触发 watch 里的 resetGenerationState，等它执行完再展示结果
+      if (settingsApplied) {
+        await nextTick()
       }
 
       viewToken += 1
@@ -1494,7 +1559,6 @@ export default {
       resetVideoTask()
       currentResultTask.value = task
       selectedTaskKey.value = `${historyTab.value}-${task.id}`
-      form.prompt = task.prompt || ''
 
       if (task.type === 'video') {
         if (task.video && task.video.url) {
@@ -1970,11 +2034,11 @@ export default {
     }
 
     // 将生成结果图片转存为原图、缩略图与预览图后写入 IndexedDB
-    const persistImageTask = async (apiImages, prompt) => {
+    const persistImageTask = async (apiImages, prompt, settings = captureTaskSettings()) => {
       // 转存期间用户可能切换模型/参数，先固定本次请求的配置
-      const layerMode = isLayerDecomposition.value
-      const outputFormat = form.outputFormat
-      const background = form.background
+      const layerMode = settings.layerDecomposition
+      const outputFormat = settings.outputFormat
+      const background = settings.background
 
       const images = await Promise.all(sortApiImages(apiImages).map(async item => {
         const meta = pickImageMeta(item)
@@ -2003,18 +2067,19 @@ export default {
       return saveImageTask({
         prompt,
         createdAt: Date.now(),
-        model: form.model,
-        size: form.size,
-        watermark: form.watermark,
+        model: settings.model,
+        size: settings.size,
+        watermark: settings.watermark,
         layerDecomposition: layerMode,
         outputFormat,
         background,
+        settings,
         images
       })
     }
 
     // 视频任务仅保存地址等元信息，暂不生成缩略图
-    const persistVideoTask = (prompt) => {
+    const persistVideoTask = (prompt, settings = captureTaskSettings()) => {
       if (!generatedVideo.value) {
         return null
       }
@@ -2022,9 +2087,10 @@ export default {
       return saveVideoTask({
         prompt,
         createdAt: Date.now(),
-        model: form.model,
+        model: settings.model,
         videoTaskId: videoTask.id,
-        video: { ...generatedVideo.value }
+        video: { ...generatedVideo.value },
+        settings
       })
     }
 
@@ -2271,6 +2337,8 @@ export default {
         .map(url => url.trim())
         .filter(Boolean)
         .slice(0, maxImageInputs.value)
+      // 请求发出前固定参考图片与高级设置，避免生成期间改动表单导致存错参数
+      const taskSettings = captureTaskSettings(validImageUrls)
 
       if (isVideoModel.value) {
         if (!normalizedPrompt && validImageUrls.length === 0) {
@@ -2326,7 +2394,7 @@ export default {
           setGeneratedVideo(taskData)
 
           try {
-            const savedTask = await persistVideoTask(normalizedPrompt)
+            const savedTask = await persistVideoTask(normalizedPrompt, taskSettings)
             currentResultTask.value = savedTask
             if (savedTask) {
               selectedTaskKey.value = `history-${savedTask.id}`
@@ -2371,7 +2439,7 @@ export default {
         let savedTask = null
 
         try {
-          savedTask = await persistImageTask(apiImages, normalizedPrompt)
+          savedTask = await persistImageTask(apiImages, normalizedPrompt, taskSettings)
         } catch (saveError) {
           console.error('❌ 保存生成结果到 IndexedDB 失败:', saveError)
         }
